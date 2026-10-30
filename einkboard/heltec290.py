@@ -57,6 +57,7 @@ class EPD:
         self.spi.mode = 0
         self.invert = invert
         self.partial_lut = False        # a full refresh reloads the OTP LUT, so reload ours before the next partial
+        self.last_busy = (False, 0.0)
 
     # ---------------------------------------------------------------- low level
     def _cmd(self, c, *data):
@@ -71,14 +72,23 @@ class EPD:
         for i in range(0, len(buf), 4096):          # spidev's default transfer limit
             self.spi.writebytes2(buf[i:i + 4096])
 
-    def _wait(self, timeout=15):
+    def _wait(self, min_time=0.0, timeout=15):
+        """Wait for BUSY (high = busy). BUSY only rises a moment after a command, so give it 20 ms
+        first; and if it never rose at all (BUSY not wired / not working), fall back to min_time
+        so the next command can't cut the refresh short."""
         t0 = time.time()
-        while self.busy.value:                      # SSD1680: BUSY high = busy
+        time.sleep(0.02)
+        seen = False
+        while self.busy.value:
+            seen = True
             if time.time() - t0 > timeout:
                 log.warning("e-paper BUSY stuck high for %ss (check BUSY wiring on Pin 18)", timeout)
-                return False
-            time.sleep(0.01)
-        return True
+                break
+            time.sleep(0.005)
+        if not seen and time.time() - t0 < min_time:
+            time.sleep(min_time - (time.time() - t0))
+        self.last_busy = (seen, time.time() - t0)   # for einktest diagnostics
+        return seen
 
     def _hw_reset(self):
         if self.rst is not None:
@@ -125,17 +135,17 @@ class EPD:
         self._cmd(ram)
         self._data(buf)
 
-    def _update(self, mode):
+    def _update(self, mode, min_time):
         self._cmd(0x22, mode)
         self._cmd(0x20)
-        self._wait()
+        return self._wait(min_time)
 
     def display_Base(self, buf):
         """Full refresh (flashes a few times, ~4 s): clears ghosting. Both RAMs get the image so the
         next partial update has a clean baseline."""
         self._write(0x26, buf)
         self._write(0x24, buf)
-        self._update(self.UPDATE_FULL)
+        self._update(self.UPDATE_FULL, 4.0)
         self.partial_lut = False
 
     def display(self, buf):
@@ -148,10 +158,12 @@ class EPD:
             self._cmd(0x32, *self.LUT_PARTIAL)
             self.partial_lut = True
         self._write(0x24, buf)
-        self._update(self.UPDATE_PART)
+        self._update(self.UPDATE_PART, 0.8)
+        busy = self.last_busy
         self._cmd(0x22, self.POWER_OFF)             # don't leave the high voltage on between minutes
         self._cmd(0x20)
-        self._wait()
+        self._wait(0.15)
+        self.last_busy = busy
         self._write(0x26, buf)                      # becomes the "previous" image for the next partial
 
     def Clear(self, color=0xFF):
