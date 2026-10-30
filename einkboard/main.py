@@ -55,6 +55,7 @@ class Board:
         self.display = display or self._make_display()
         self.pages = active_pages(cfg)
         self.night_shown = False
+        self.last_page = None
 
     def _make_display(self):
         from .display import Eink, SimDisplay
@@ -86,8 +87,12 @@ class Board:
                 self.night_shown = True
             return name
         self.night_shown = False
-        # full refresh on the hour keeps ghosting away without flashing every minute
-        self.display.show(img, force_full=(now.minute == 0))
+        e = self.cfg["eink"]
+        every = max(1, int(e.get("full_refresh_minutes", 60)))
+        clean = (now.hour * 60 + now.minute) % every == 0          # periodic clean-up of partial-refresh ghosting
+        turn = e.get("page_change_full", True) and self.last_page not in (None, name)
+        self.display.show(img, force_full=clean or turn)
+        self.last_page = name
         return name
 
     def run(self):

@@ -264,8 +264,9 @@ def test_board_refresh_policy(tmp_path):
     times = iter([dt.datetime(2026, 10, 29, 10, m, tzinfo=TZ) for m in (1, 2, 3)] +
                  [dt.datetime(2026, 10, 29, 23, m, tzinfo=TZ) for m in (40, 41)])
     b.now = lambda: next(times)
+    b.cfg["rotate_minutes"] = 2
     assert [b.tick() for _ in range(5)] == ["clock", "power", "power", "night", "night"]
-    assert b.display.fulls == 2          # first frame + entering night; night drawn only once
+    assert b.display.fulls == 3          # first frame + page change (page_change_full) + entering night
     assert (tmp_path / "eink.png").exists()
 
 
@@ -445,3 +446,23 @@ def test_parse_power_merges_split_records():
     assert p["publish"].endswith("11:50")
     img = pages.page_power(dt.datetime(2026, 10, 30, 12, 0, tzinfo=TZ), p)
     assert img.size == (296, 128)
+
+
+def test_full_refresh_policy_options(tmp_path):
+    cfg = config.load("/nonexistent")
+    cfg.update(simulate=True, sim_dir=str(tmp_path))
+    cfg["rotate_minutes"] = 5
+    b = Board(cfg)
+    b.weather, b.power, b.market = FakeSource(), FakeSource(), FakeSource()
+    mins = iter(range(1, 21))
+    b.now = lambda: dt.datetime(2026, 10, 30, 13, next(mins), tzinfo=TZ)
+    names = [b.tick() for _ in range(20)]                     # 13:01 .. 13:20
+    assert names.count("clock") and names.count("power")
+    assert b.display.fulls == 1 + 4                           # first frame + page changes at :05 :10 :15 :20
+    cfg["eink"].update(page_change_full=False, full_refresh_minutes=10)
+    b2 = Board(cfg)
+    b2.weather, b2.power, b2.market = FakeSource(), FakeSource(), FakeSource()
+    mins = iter(range(1, 21))
+    b2.now = lambda: dt.datetime(2026, 10, 30, 13, next(mins), tzinfo=TZ)
+    [b2.tick() for _ in range(20)]
+    assert b2.display.fulls == 1 + 2                          # first frame + 13:10 + 13:20

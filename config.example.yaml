@@ -7,7 +7,7 @@ location:
   tz: Asia/Taipei
 
 pages: [clock, power, market]     # 輪播順序，不要的拿掉
-rotate_minutes: 2                 # 每頁停留分鐘數
+rotate_minutes: 5                 # 每頁停留分鐘數
 
 night:                            # 夜間顯示「晚安」後停止刷新
   enabled: true
@@ -21,7 +21,11 @@ market:
 
 eink:
   driver: heltec290               # Heltec 2.9"；Waveshare 模組改成 epd2in9_V2
-  full_refresh_every: 0           # 0 = 只在整點全刷一次（會閃 3～4 下清殘影）；其他時間都是不閃的局部刷新
+  full_refresh_every: 0           # 每 N 次更新全刷一次（0 = 關閉）
+  full_refresh_minutes: 60        # 每隔幾分鐘全刷一次清殘影（60 = 整點；10 = 每 10 分鐘）
+  page_change_full: true          # 換頁時全刷：閃一下但完全沒殘影；false = 換頁也用局部刷新（會留淡淡殘影）
+  lut_tp: 20                      # 局部波形強度（einktest --ghost 實測最佳：設定 B）
+  lut_rp: 0
   rotate180: false                # 畫面上下顛倒就改 true
   invert: false                   # 黑白顛倒（黑底白字）就改 true
   partial_mode: lut_cc            # 局部刷新方式：gx_cc / otp_c4 / otp_ff，跑 einktest --modes 會告訴你選哪個
