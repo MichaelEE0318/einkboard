@@ -28,6 +28,42 @@ def lan_ip():
         return ""
 
 
+def read_wifi(path="/proc/net/wireless", iface="wlan0"):
+    """(connected, link quality 0-70) from the kernel's wireless stats; no network traffic."""
+    try:
+        with open(path, encoding="ascii") as f:
+            for line in f:
+                if line.strip().startswith(iface + ":"):
+                    q = float(line.split()[2].rstrip("."))
+                    return q > 0, q
+    except (OSError, ValueError, IndexError):
+        pass
+    return False, 0.0
+
+
+class WifiState:
+    """Signal -> 1..3 bars with hysteresis, so a signal hovering on a boundary doesn't redraw the panel."""
+    EDGES = (25, 45)                    # quality (out of 70): <25 one bar, 25-45 two, >45 three
+    HYST = 4
+
+    def __init__(self):
+        self.bars = 3
+
+    def update(self, quality):
+        lo, hi = self.EDGES
+        b = self.bars
+        if b == 1 and quality >= lo + self.HYST:
+            b = 2
+        if b == 2 and quality >= hi + self.HYST:
+            b = 3
+        if b == 3 and quality < hi - self.HYST:
+            b = 2
+        if b == 2 and quality < lo - self.HYST:
+            b = 1
+        self.bars = b
+        return b
+
+
 def _hm(s):
     h, m = s.split(":")
     return int(h) * 60 + int(m)
@@ -72,6 +108,8 @@ class Board:
         self.started = time.time()
         self.restart_requested = False
         self.ip = ""
+        self.wifi = WifiState()
+        self.wifi_reader = read_wifi
         self.sign_path = os.path.join(cfg["cache_dir"], "sign.json")
         self.sign = self._load_sign()   # 狀態牌（出差中 / 下班了 / 暫離），撐過重開機
 
@@ -128,9 +166,21 @@ class Board:
         name = self.page_name(now)
         return name, self.render_page(name, now)
 
+    def internet_ok(self, window=20 * 60):
+        """Any data source succeeded recently -> the internet works (Wi-Fi alone isn't enough)."""
+        t = max((getattr(s, "updated", 0) or 0) for s in self.sources().values() if s) if any(self.sources().values()) else 0
+        return time.time() - t < window or time.time() - self.started < window
+
+    def decorate(self, img):
+        connected, quality = self.wifi_reader()
+        bars = self.wifi.update(quality) if connected else self.wifi.bars
+        self.net = {"connected": connected, "bars": bars, "internet": self.internet_ok(), "quality": quality}
+        return pages.draw_wifi(img, bars, connected, self.net["internet"])
+
     def tick(self):
         now = self.now()
         name, img = self.render(now)
+        img = self.decorate(img)
         self.last_img, self.current = img, name
         if name == "night":
             if not self.night_shown:                  # draw once, then let the panel sleep all night
@@ -204,7 +254,7 @@ class Board:
                 src[k] = {"ok": s.data is not None and not s.stale, "updated": getattr(s, "updated", 0),
                           "error": getattr(s, "error", None)}
         return {"page": self.current, "pages": self.pages, "paused": bool(self.paused), "ip": self.ip,
-                "sign": self.sign,
+                "sign": self.sign, "net": getattr(self, "net", None),
                 "port": self.cfg["web"]["port"], "uptime": int(time.time() - self.started),
                 "night": is_night(now, self.cfg["night"]), "now": now.strftime("%H:%M"), "sources": src}
 

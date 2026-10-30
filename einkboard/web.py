@@ -360,6 +360,7 @@ async function poll(){
     $("gotoRow").innerHTML=s.pages.map(p=>`<button class="chip ${p===s.page?"on":""}" onclick="act('goto','${p}')">${NAMES[p]||p}</button>`).join("");
     const lab={weather:"天氣",power:"台電",market:"台股．匯率"};
     $("status").innerHTML=`<span>目前畫面</span><span>${s.sign?"狀態牌："+SIGNS[s.sign.kind].name:s.night?"夜間（晚安）":(NAMES[s.page]||s.page||"—")}${s.paused?"（已暫停輪播）":""}</span>`+
+      (s.net?`<span>Wi-Fi</span><span><span class="dot ${!s.net.connected?"bad":s.net.internet?"ok":"warn"}"></span>${!s.net.connected?"未連線":`訊號 ${s.net.bars} 格`+(s.net.internet?"":"（連不上網際網路）")}</span>`:"")+
       Object.entries(s.sources).map(([k,v])=>`<span>${lab[k]}</span><span><span class="dot ${v.ok?"ok":v.updated?"warn":"bad"}"></span>${ago(v.updated)}${v.error?`<span class="err">　${v.error.slice(0,80)}</span>`:""}</span>`).join("");
     const key=s.page+s.now+s.paused;if(key!==lastKey){lastKey=key;$("shot").src="/preview.png?"+Date.now()}
   }catch(e){$("where").textContent="連不上看板（重啟中？）"}

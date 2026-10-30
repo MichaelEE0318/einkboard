@@ -615,3 +615,32 @@ def test_away_sign_is_static():
     a = pages.page_status(dt.datetime(2026, 10, 30, 14, 10, tzinfo=TZ), info)
     b = pages.page_status(dt.datetime(2026, 10, 30, 15, 45, tzinfo=TZ), info)
     assert a.tobytes() == b.tobytes()           # nothing changes over time -> no refreshes while away
+
+
+def test_read_wifi_and_bars_hysteresis(tmp_path):
+    from einkboard.main import WifiState, read_wifi
+    f = tmp_path / "wireless"
+    f.write_text("Inter-| sta-|   Quality        |   Discarded packets\n"
+                 " face | tus | link level noise |  nwid  crypt   frag  retry   misc | beacon | 22\n"
+                 " wlan0: 0000   58.  -52.  -256        0      0      0      0     12        0\n")
+    assert read_wifi(str(f)) == (True, 58.0)
+    f.write_text("Inter-| sta-|   Quality\n face | tus | link level noise\n")
+    assert read_wifi(str(f)) == (False, 0.0)
+    assert read_wifi(str(tmp_path / "missing")) == (False, 0.0)
+    w = WifiState()
+    assert [w.update(q) for q in (58, 44, 40, 46, 50, 20, 23, 30)] == [3, 3, 2, 2, 3, 1, 1, 2]
+
+
+def test_wifi_icon_on_every_page(tmp_path):
+    b = _board(tmp_path)
+    b.sign_path = str(tmp_path / "sign.json")
+    b.wifi_reader = lambda: (True, 60.0)
+    b.tick(); on = b.last_img.crop((276, 0, 296, 16)).tobytes()
+    b.wifi_reader = lambda: (False, 0.0)
+    b.display.last = None
+    b.tick(); off = b.last_img.crop((276, 0, 296, 16)).tobytes()
+    assert on != off                                   # slash appears
+    blank = pages.canvas()[0]
+    for state in [(3, True, True), (1, True, True), (2, True, False), (3, False, True)]:
+        img = pages.draw_wifi(blank.copy(), *state)
+        assert img.crop((270, 0, 296, 16)).tobytes() != blank.crop((270, 0, 296, 16)).tobytes()
