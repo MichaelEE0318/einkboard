@@ -466,3 +466,12 @@ def test_full_refresh_policy_options(tmp_path):
     b2.now = lambda: dt.datetime(2026, 10, 30, 13, next(mins), tzinfo=TZ)
     [b2.tick() for _ in range(20)]
     assert b2.display.fulls == 1 + 2                          # first frame + 13:10 + 13:20
+
+
+def test_index_codes_get_short_names(tmp_path):
+    q = parse_mis({"msgArray": [{"c": "t00", "n": "發行量加權股價指數", "z": "23456.78", "y": "23400.00", "t": "13:30:00"}]})
+    assert q["t00"]["name"] == "加權指數" and q["t00"]["price"] == pytest.approx(23456.78)
+    m = Market(mcfg(tmp_path)); m.stocks = ["t00"]
+    assert m._ex_ch() == "tse_t00.tw|otc_t00.tw"
+    img = pages.page_market(dt.datetime(2026, 10, 30, 13, 0, tzinfo=TZ), {"quotes": q, "fx": {}, "open": True})
+    assert img.size == (296, 128)

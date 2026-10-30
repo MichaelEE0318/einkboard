@@ -228,6 +228,10 @@ def _px(v):
         return None
 
 
+# 指數在 MIS 的全名太長，畫面上用簡稱
+SHORT_NAMES = {"t00": "加權指數", "o00": "櫃買指數", "FRMSA": "寶島指數"}
+
+
 def parse_mis(j):
     """TWSE MIS getStockInfo.jsp -> {code: {...}}"""
     out = {}
@@ -237,7 +241,8 @@ def parse_mis(j):
         last = _px(r.get("z")) or _px(r.get("pz")) or _px(r.get("b")) or _px(r.get("a")) or _px(r.get("o"))
         chg = (last - prev) if (last is not None and prev) else None
         out[r.get("c")] = {
-            "code": r.get("c"), "name": (r.get("n") or "").strip(), "price": last, "prev": prev,
+            "code": r.get("c"), "name": SHORT_NAMES.get(r.get("c"), (r.get("n") or "").strip()),
+            "price": last, "prev": prev,
             "chg": chg, "pct": (chg / prev * 100) if chg is not None else None,
             "high": _px(r.get("h")), "low": _px(r.get("l")),
             "vol": _num(r.get("v")),                  # 張
