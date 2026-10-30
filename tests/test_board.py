@@ -361,12 +361,18 @@ def test_heltec_full_and_partial_sequences(monkeypatch):
     log.clear(); epd.display_Base(buf)
     c = commands(log)
     rams = [x for x, _ in c if x in (0x24, 0x26)]
-    assert rams == [0x24, 0x26] and (0x22, bytes([0xF7])) in c and c[-1][0] == 0x20
+    assert rams == [0x26, 0x24] and (0x22, bytes([0xF7])) in c and c[-1][0] == 0x20
     assert dict(c)[0x24] == bytes(buf)
     log.clear(); epd.display_Partial(buf)
     c = commands(log)
-    seq = [x for x, _ in c if x in (0x24, 0x22, 0x20, 0x26)]
-    assert seq == [0x24, 0x22, 0x20, 0x26] and (0x22, bytes([0xFF])) in c
+    seq = [x for x, _ in c if x in (0x32, 0x24, 0x22, 0x20, 0x26)]
+    assert seq == [0x32, 0x24, 0x22, 0x20, 0x22, 0x20, 0x26]      # LUT, new image, refresh, power off, baseline
+    assert (0x22, bytes([0xCC])) in c and (0x22, bytes([0x83])) in c
+    assert len(dict(c)[0x32]) == 153
+    log.clear(); epd.display_Partial(buf)                          # LUT stays loaded between partials
+    assert 0x32 not in [x for x, _ in commands(log)]
+    epd.display_Base(buf); log.clear(); epd.display_Partial(buf)   # full refresh reloads OTP LUT -> resend ours
+    assert [x for x, _ in commands(log)][0] == 0x32
 
 
 def test_heltec_buffer_orientation_and_invert(monkeypatch):

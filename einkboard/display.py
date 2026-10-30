@@ -33,7 +33,7 @@ class Eink:
         if img.tobytes() == (self.last.tobytes() if self.last else None) and not force_full:
             return False                               # nothing changed: don't touch the panel
         buf = self.epd.getbuffer(img)                 # driver rotates landscape 296x128
-        if force_full or self.asleep or self.count % self.full_every == 0:
+        if force_full or self.asleep or (self.full_every and self.count % self.full_every == 0):
             self.epd.init()
             self.epd.display_Base(buf)                # full refresh (flashes once)
             self.asleep = False
@@ -71,7 +71,7 @@ class SimDisplay:
     def show(self, img, force_full=False):
         if self.last is not None and img.tobytes() == self.last.tobytes() and not force_full:
             return False
-        if force_full or self.asleep or self.count % self.full_every == 0:
+        if force_full or self.asleep or (self.full_every and self.count % self.full_every == 0):
             self.fulls += 1
             self.asleep = False
         self.count += 1

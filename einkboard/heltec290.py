@@ -1,8 +1,10 @@
 """Heltec 2.9" e-paper (DEPG0290BxS800, SSD1680, 128x296) — minimal driver for Raspberry Pi.
 
-Why not Waveshare's epd2in9_V2: it loads a custom waveform (LUT) tuned for Waveshare glass,
-which on the Heltec panel gives inverted colours, heavy ghosting and broken partial refresh.
-Heltec's own code only soft-resets and uses the panel's built-in (OTP) waveform; so does this.
+Why not Waveshare's epd2in9_V2: it loads a full-refresh waveform (LUT) tuned for Waveshare glass,
+which on the Heltec panel gives inverted colours and heavy ghosting.
+Full refresh here uses the panel's built-in (OTP) waveform, like Heltec's own code. The panel has no
+usable built-in partial waveform, so partial refresh loads the one GxEPD2 uses for this exact panel
+(GxEPD2_290_BS, DEPG0290BS): 0x32 <lut_partial>, then 0x22=0xCC — ~0.75 s, no flashing.
 
 Same interface as waveshare_epd.EPD: init / display_Base / display_Partial / getbuffer / Clear / sleep.
 Wiring (BCM): DC=25, BUSY=24, CS=CE0 (spidev0.0), optional RST=17 (the 7-pin Heltec board has none).
@@ -17,8 +19,31 @@ WIDTH, HEIGHT = 128, 296            # panel memory: 128 px (16 bytes) wide, 296 
 
 class EPD:
     width, height = WIDTH, HEIGHT
-    UPDATE_FULL = 0xF7               # clock+analog on, load temp, display mode 1 (full waveform), power off
-    UPDATE_PART = 0xFF               # same, display mode 2 (partial waveform from OTP)
+    UPDATE_FULL = 0xF7               # clock+analog on, load temp + OTP LUT, display, power off (flashes, ~4 s)
+    UPDATE_PART = 0xCC               # display with the LUT already in the register (our partial LUT)
+    POWER_OFF = 0x83                 # analog + clock off after a partial update
+
+    # Partial-update waveform for DEPG0290BS (from GxEPD2_290_BS.cpp, GPL-3.0, Jean-Marc Zingg)
+    LUT_PARTIAL = bytes([
+        0x0, 0x40, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+        0x80, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+        0x40, 0x40, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+        0x0, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+        0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+        0x0A, 0x0, 0x0, 0x0, 0x0, 0x0, 0x2,
+        0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+        0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+        0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+        0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+        0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+        0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+        0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+        0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+        0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+        0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+        0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
+        0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x0, 0x0, 0x0,
+    ])
 
     def __init__(self, dc=25, busy=24, rst=None, spi_bus=0, spi_dev=0, hz=2_000_000, invert=False):
         import spidev
@@ -31,6 +56,7 @@ class EPD:
         self.spi.max_speed_hz = hz
         self.spi.mode = 0
         self.invert = invert
+        self.partial_lut = False        # a full refresh reloads the OTP LUT, so reload ours before the next partial
 
     # ---------------------------------------------------------------- low level
     def _cmd(self, c, *data):
@@ -79,6 +105,7 @@ class EPD:
         self._cmd(0x18, 0x80)                       # internal temperature sensor
         self._window_full()
         self._wait()
+        self.partial_lut = False
         return 0
 
     def getbuffer(self, image):
@@ -104,18 +131,27 @@ class EPD:
         self._wait()
 
     def display_Base(self, buf):
-        """Full refresh (flashes): new image into both RAMs so the next partial has a clean baseline."""
-        self._write(0x24, buf)
+        """Full refresh (flashes a few times, ~4 s): clears ghosting. Both RAMs get the image so the
+        next partial update has a clean baseline."""
         self._write(0x26, buf)
+        self._write(0x24, buf)
         self._update(self.UPDATE_FULL)
+        self.partial_lut = False
 
     def display(self, buf):
         self.display_Base(buf)
 
     def display_Partial(self, buf):
-        """Partial refresh (no flash): panel diffs 0x24 (new) against 0x26 (previous)."""
+        """Partial refresh (no flash, ~0.75 s): panel drives only pixels that differ between 0x24 (new)
+        and 0x26 (previous)."""
+        if not self.partial_lut:
+            self._cmd(0x32, *self.LUT_PARTIAL)
+            self.partial_lut = True
         self._write(0x24, buf)
         self._update(self.UPDATE_PART)
+        self._cmd(0x22, self.POWER_OFF)             # don't leave the high voltage on between minutes
+        self._cmd(0x20)
+        self._wait()
         self._write(0x26, buf)                      # becomes the "previous" image for the next partial
 
     def Clear(self, color=0xFF):
