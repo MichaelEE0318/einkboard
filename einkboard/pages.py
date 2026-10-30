@@ -416,14 +416,23 @@ def page_off(now, info, wx=None):
 
 
 def page_away(now, info):
-    """暫離: back at what time + an optional note. Static on purpose (no departure time / time away)."""
+    """暫離: back at what time + an optional note, centred in the right panel. Static on purpose."""
     img, d = canvas()
-    _status_frame(d, "暫離", lambda: _icon_cup(d, 46, 64))
+    d.rectangle([0, 0, W - 1, H - 1], outline=BLACK, width=2)
+    d.line([98, 10, 98, H - 10], fill=BLACK, width=1)
+    _icon_cup(d, 46, 64)
     back = (info.get("back") or "").strip()
-    d.text((110, 50), f"預計 {back} 回來" if back else "馬上回來", font=cjk(18, True), fill=BLACK)
     note = (info.get("note") or "").strip()
+    lines = [("暫離", cjk(30, True)), (f"預計 {back} 回來" if back else "馬上回來", cjk(18, True))]
     if note:
-        d.text((110, 84), fit(d, note, cjk(14), W - 118), font=cjk(14), fill=BLACK)
+        lines.append((fit(d, note, cjk(14), W - 118), cjk(14)))
+    gap = 6
+    boxes = [d.textbbox((0, 0), t, font=f) for t, f in lines]
+    total = sum(b[3] - b[1] for b in boxes) + gap * (len(lines) - 1)
+    x_mid, y = (99 + W - 2) / 2, (H - total) / 2               # centre of the right panel
+    for (t, f), b in zip(lines, boxes):
+        d.text((x_mid - (b[2] - b[0]) / 2 - b[0], y - b[1]), t, font=f, fill=BLACK)
+        y += b[3] - b[1] + gap
     return img
 
 
