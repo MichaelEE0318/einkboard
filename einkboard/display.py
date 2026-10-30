@@ -10,7 +10,8 @@ def make_epd(e):
     """eink.driver: 'heltec290' (Heltec 2.9", built-in waveform) or any waveshare_epd module name."""
     if e["driver"] == "heltec290":
         from .heltec290 import EPD
-        return EPD(rst=17 if e.get("has_reset_pin") else None, invert=e.get("invert", False))
+        return EPD(rst=17 if e.get("has_reset_pin") else None, invert=e.get("invert", False),
+                   partial_mode=e.get("partial_mode", "gx_cc"))
     return importlib.import_module(f"waveshare_epd.{e['driver']}").EPD()
 
 

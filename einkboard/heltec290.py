@@ -45,7 +45,14 @@ class EPD:
         0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x0, 0x0, 0x0,
     ])
 
-    def __init__(self, dc=25, busy=24, rst=None, spi_bus=0, spi_dev=0, hz=2_000_000, invert=False):
+    # partial_mode — Heltec shipped two 2.9" generations with different controllers:
+    #   "gx_cc"  : DEPG0290BxS800 (SSD1680): load GxEPD2's partial LUT, refresh 0xCC (~0.75 s, no flash)
+    #   "otp_c4" : DEPG0290BxS75A (SSD1675A): Heltec's own method, built-in LUT, refresh 0xC4
+    #   "otp_ff" : built-in "display mode 2" (works on both, but flashes like a full refresh)
+    PARTIAL_MODES = ("gx_cc", "otp_c4", "otp_ff")
+
+    def __init__(self, dc=25, busy=24, rst=None, spi_bus=0, spi_dev=0, hz=2_000_000, invert=False,
+                 partial_mode="gx_cc"):
         import spidev
         from gpiozero import DigitalInputDevice, DigitalOutputDevice
         self.dc = DigitalOutputDevice(dc)
@@ -56,6 +63,9 @@ class EPD:
         self.spi.max_speed_hz = hz
         self.spi.mode = 0
         self.invert = invert
+        if partial_mode not in self.PARTIAL_MODES:
+            raise ValueError(f"partial_mode must be one of {self.PARTIAL_MODES}")
+        self.partial_mode = partial_mode
         self.partial_lut = False        # a full refresh reloads the OTP LUT, so reload ours before the next partial
         self.last_busy = (False, 0.0)
 
@@ -109,12 +119,19 @@ class EPD:
         self._cmd(0x12)                             # software reset (works without a RST pin)
         time.sleep(0.01)
         self._wait()
+        if self.partial_mode == "otp_c4":           # Heltec S75A init: analog / digital block control
+            self._cmd(0x74, 0x54)
+            self._cmd(0x7E, 0x3B)
         self._cmd(0x01, (HEIGHT - 1) & 0xFF, (HEIGHT - 1) >> 8, 0x00)   # gate lines 296
         self._cmd(0x3C, 0x05)                       # border: follow white
         self._cmd(0x21, 0x00, 0x80)                 # display update control: normal RAM, source S8–S167
         self._cmd(0x18, 0x80)                       # internal temperature sensor
         self._window_full()
         self._wait()
+        if self.partial_mode == "otp_c4":           # load temperature + built-in LUT once (Heltec: 0x22=0xB1)
+            self._cmd(0x22, 0xB1)
+            self._cmd(0x20)
+            self._wait(0.2)
         self.partial_lut = False
         return 0
 
@@ -154,6 +171,16 @@ class EPD:
     def display_Partial(self, buf):
         """Partial refresh (no flash, ~0.75 s): panel drives only pixels that differ between 0x24 (new)
         and 0x26 (previous)."""
+        if self.partial_mode == "otp_c4":
+            self._write(0x24, buf)
+            self._update(0xC4, 0.8)                 # Heltec HalLcd_Partial_Update()
+            self._write(0x26, buf)
+            return
+        if self.partial_mode == "otp_ff":
+            self._write(0x24, buf)
+            self._update(0xFF, 2.0)
+            self._write(0x26, buf)
+            return
         if not self.partial_lut:
             self._cmd(0x32, *self.LUT_PARTIAL)
             self.partial_lut = True

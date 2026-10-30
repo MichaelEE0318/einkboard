@@ -24,6 +24,7 @@ eink:
   full_refresh_every: 0           # 0 = 只在整點全刷一次（會閃 3～4 下清殘影）；其他時間都是不閃的局部刷新
   rotate180: false                # 畫面上下顛倒就改 true
   invert: false                   # 黑白顛倒（黑底白字）就改 true
+  partial_mode: gx_cc             # 局部刷新方式：gx_cc / otp_c4 / otp_ff，跑 einktest --modes 會告訴你選哪個
   has_reset_pin: false            # Heltec 7 腳模組（VCC GND D/C SDI CS CLK BUSY）沒有 RST → false
                                   # 有 RST 腳的模組（Waveshare 8/9 腳）改 true，夜間可深度睡眠
 

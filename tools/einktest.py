@@ -28,6 +28,46 @@ for svc in ("einkboard", "airstation"):   # 背景服務會佔住 GPIO，測試�
     if subprocess.run(["systemctl", "is-active", "--quiet", svc]).returncode == 0:
         print(f"⚠ {svc} 服務正在執行，會佔住螢幕腳位。請先執行：sudo systemctl stop {svc}")
         sys.exit(1)
+
+if "--modes" in sys.argv:
+    # 逐一試三種局部刷新方式，問使用者哪個有效，最後給出要寫進 config.yaml 的設定
+    from einkboard.heltec290 import EPD as HEPD
+    big = fonts.get(30, bold=True, cjk=True)
+    small = fonts.get(16, bold=True, cjk=True)
+    results = {}
+    for mode in HEPD.PARTIAL_MODES:
+        print(f"\n=== 模式 {mode} ===")
+        epd = make_epd(dict(ecfg, partial_mode=mode))
+        img = Image.new("1", (296, 128), 255)
+        d = ImageDraw.Draw(img)
+        d.rectangle([0, 0, 295, 127], outline=0, width=3)
+        d.text((12, 8), f"模式 {mode}", font=small, fill=0)
+        epd.init()
+        epd.display_Base(epd.getbuffer(img))
+        print("   已全刷（這次會閃，正常）。接下來 3 次局部刷新：")
+        for n in range(1, 4):
+            d.rectangle([12, 40, 290, 120], fill=255)
+            d.text((14, 48), f"第 {n} 次 ▶ {'●' * n}", font=big, fill=0)
+            t = time.time()
+            epd.display_Partial(epd.getbuffer(img))
+            print(f"   第 {n} 次：{time.time() - t:.2f}s")
+            time.sleep(0.8)
+        changed = input("   螢幕上的「第 1→3 次」有更新嗎？(y/n) ").strip().lower().startswith("y")
+        flashed = changed and input("   更新時有黑白閃爍嗎？(y/n) ").strip().lower().startswith("y")
+        results[mode] = (changed, flashed)
+        if hasattr(epd, "close"):
+            epd.close()
+    good = [m for m, (c, f) in results.items() if c and not f] or [m for m, (c, f) in results.items() if c]
+    print("\n結果：", {m: ("有更新" if c else "沒反應") + ("、會閃" if f else "") for m, (c, f) in results.items()})
+    if good:
+        print(f"建議使用 {good[0]}，執行：")
+        print(f"  grep -q partial_mode config.yaml && sed -i 's/partial_mode: .*/partial_mode: {good[0]}/' config.yaml "
+              f"|| sed -i '/^eink:/a\\  partial_mode: {good[0]}' config.yaml")
+        print("  sudo systemctl start einkboard")
+    else:
+        print("三種都沒反應：請拍螢幕照片和排線上的 DEPG0290… 型號給 Claude。")
+    sys.exit(0)
+
 try:
     epd = make_epd(ecfg)
 except Exception as e:  # lgpio.error: 'GPIO busy'
