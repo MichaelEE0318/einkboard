@@ -236,7 +236,7 @@ def page_market(now, mk, stale=False):
         d.text((6, 50), "行情資料載入中…", font=cjk(14), fill=BLACK)
         return img
     quotes = list(mk["quotes"].values())
-    t = max((q["time"] for q in quotes), default="")
+    t = max((q.get("time") or "" for q in quotes), default="")
     src = mk.get("src", "mis")
     if mk.get("open"):
         status = f"盤中 {t[:5]}"
