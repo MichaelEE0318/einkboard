@@ -320,6 +320,129 @@ def page_market(now, mk, stale=False):
     return img
 
 
+# ------------------------------------------------------------------ status signs (manual: 出差中 / 下班了 / 暫離)
+STATUS_KINDS = {"trip": "出差中", "off": "下班了", "away": "暫離"}
+
+
+def _icon_plane(d, cx, cy, s=1.0):
+    """Side-view airliner, nose to the right."""
+    P = lambda pts: [(cx + x * s, cy + y * s) for x, y in pts]
+    d.rounded_rectangle([cx - 34 * s, cy - 5 * s, cx + 30 * s, cy + 5 * s], radius=5 * s, fill=BLACK)   # fuselage
+    d.polygon(P([(36, 0), (28, -5), (28, 5)]), fill=BLACK)                                              # nose
+    d.polygon(P([(-6, 2), (8, 2), (-10, 30), (-20, 30)]), fill=BLACK)                                   # near wing
+    d.polygon(P([(-2, -2), (8, -2), (-8, -20), (-16, -20)]), fill=BLACK)                                # far wing
+    d.polygon(P([(-34, -2), (-24, -2), (-34, -20), (-40, -20)]), fill=BLACK)                            # tail fin
+    for i in range(5):                                                                                   # windows
+        x = cx + (-20 + i * 9) * s
+        d.rectangle([x, cy - 2 * s, x + 4 * s, cy], fill=WHITE)
+
+
+def _icon_moon(d, cx, cy, r=26):
+    d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=BLACK)
+    d.ellipse([cx - r + 14, cy - r - 6, cx + r + 14, cy + r - 6], fill=WHITE)                          # carve crescent
+    for sx, sy, k in ((cx + 24, cy - 22, 4), (cx + 30, cy + 8, 3), (cx + 8, cy + 26, 2)):               # stars
+        d.line([sx - k, sy, sx + k, sy], fill=BLACK, width=2)
+        d.line([sx, sy - k, sx, sy + k], fill=BLACK, width=2)
+
+
+def _icon_cup(d, cx, cy):
+    d.rounded_rectangle([cx - 22, cy - 10, cx + 14, cy + 26], radius=6, fill=BLACK)                    # cup
+    d.ellipse([cx + 6, cy - 4, cx + 30, cy + 18], outline=BLACK, width=5)                              # handle
+    d.rectangle([cx - 30, cy + 28, cx + 22, cy + 32], fill=BLACK)                                      # saucer
+    for x in (cx - 12, cx - 3, cx + 6):                                                                 # steam
+        d.arc([x - 4, cy - 34, x + 4, cy - 22], 90, 270, fill=BLACK, width=2)
+        d.arc([x - 4, cy - 24, x + 4, cy - 12], 270, 90, fill=BLACK, width=2)
+
+
+def _status_frame(d, title, icon):
+    d.rectangle([0, 0, W - 1, H - 1], outline=BLACK, width=2)
+    d.line([98, 10, 98, H - 10], fill=BLACK, width=1)
+    icon()
+    d.text((108, 6), title, font=cjk(30, True), fill=BLACK)
+
+
+def _date_zh(day):
+    return f"{day.month}/{day.day}（{WEEK[day.weekday()]}）"
+
+
+def page_trip(now, info):
+    """出差中: where, back on which day (with a countdown), how to reach me."""
+    img, d = canvas()
+    _status_frame(d, "出差中", lambda: _icon_plane(d, 50, 58, 1.0))
+    place = (info.get("place") or "").strip()
+    if place:
+        d.text((110, 46), fit(d, place, cjk(16, True), W - 118), font=cjk(16, True), fill=BLACK)
+    back = info.get("back")
+    y = 72
+    if back:
+        try:
+            day = dt.date.fromisoformat(back)
+            left = (day - now.date()).days
+            tag = "今天回來" if left == 0 else (f"還有 {left} 天" if left > 0 else "已過預定回程")
+            f = cjk(13, True)
+            w = d.textlength(tag, font=f)
+            d.rounded_rectangle([W - w - 18, y + 1, W - 8, y + 19], radius=9, fill=BLACK)
+            d.text((W - w - 13, y + 1), tag, font=f, fill=WHITE)
+            d.text((110, y), fit(d, f"{_date_zh(day)} 回來", cjk(13), W - w - 132), font=cjk(13), fill=BLACK)
+        except ValueError:
+            pass
+    note = (info.get("note") or "").strip()
+    if note:
+        d.text((110, H - 22), fit(d, note, cjk(11), W - 118), font=cjk(11), fill=BLACK)
+    return img
+
+
+def _next_workday_label(now):
+    if now.hour < 6:
+        return "今天"
+    return "下週一" if now.weekday() >= 4 else "明天"      # Fri / Sat / Sun -> Monday
+
+
+def page_off(now, info, wx=None):
+    """下班了: when I'm back, and tomorrow's weather."""
+    img, d = canvas()
+    _status_frame(d, "下班了", lambda: _icon_moon(d, 48, 62))
+    back = (info.get("back") or "09:00").strip()
+    d.text((110, 48), f"{_next_workday_label(now)} {back} 見", font=cjk(18, True), fill=BLACK)
+    note = (info.get("note") or "").strip()
+    if note:
+        d.text((110, 76), fit(d, note, cjk(12), W - 118), font=cjk(12), fill=BLACK)
+    t = (wx or {}).get("tomorrow")
+    if t:
+        d.line([108, H - 26, W - 8, H - 26], fill=BLACK)
+        d.text((110, H - 23), f"明天 {t['desc']}  {fmt(t['lo'])}°～{fmt(t['hi'])}°  降雨 {fmt(t.get('rain'))}%",
+               font=cjk(11), fill=BLACK)
+    return img
+
+
+def page_away(now, info):
+    """暫離: back at what time, and how long I've been gone (updates every minute without flashing)."""
+    img, d = canvas()
+    _status_frame(d, "暫離", lambda: _icon_cup(d, 46, 64))
+    back = (info.get("back") or "").strip()
+    d.text((110, 46), f"預計 {back} 回來" if back else "馬上回來", font=cjk(18, True), fill=BLACK)
+    note = (info.get("note") or "").strip()
+    if note:
+        d.text((110, 74), fit(d, note, cjk(12), W - 118), font=cjk(12), fill=BLACK)
+    try:
+        since = dt.datetime.fromisoformat(info["since"])
+        mins = max(0, int((now - since).total_seconds() // 60))
+        gone = f"{mins // 60} 小時 {mins % 60} 分" if mins >= 60 else f"{mins} 分鐘"
+        d.text((110, H - 22), f"{since:%H:%M} 離開．已經 {gone}", font=cjk(11), fill=BLACK)
+    except (KeyError, ValueError, TypeError):
+        pass
+    return img
+
+
+def page_status(now, info, wx=None):
+    kind = info.get("kind")
+    if kind == "trip":
+        return page_trip(now, info)
+    if kind == "off":
+        return page_off(now, info, wx)
+    return page_away(now, info)
+
+
 # ------------------------------------------------------------------ night / boot
 def page_night(now, wx=None):
     img, d = canvas()

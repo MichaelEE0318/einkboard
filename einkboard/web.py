@@ -98,6 +98,26 @@ def validate(new):
     }
 
 
+def validate_sign(a):
+    """狀態牌欄位：kind + place / back / note."""
+    from .pages import STATUS_KINDS
+    if not isinstance(a, dict) or a.get("kind") not in STATUS_KINDS:
+        raise Invalid("請選擇狀態：出差中、下班了或暫離")
+    kind = a["kind"]
+    place, note = str(a.get("place") or "").strip(), str(a.get("note") or "").strip()
+    back = str(a.get("back") or "").strip()
+    if len(place) > 16:
+        raise Invalid("地點最多 16 個字")
+    if len(note) > 24:
+        raise Invalid("留言最多 24 個字")
+    if back:
+        if kind == "trip" and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", back):
+            raise Invalid("回程日期格式不對")
+        if kind != "trip":
+            back = _hhmm(back, "回來時間")
+    return {"kind": kind, "place": place if kind == "trip" else "", "back": back, "note": note}
+
+
 def save(path, clean):
     """Merge into the YAML file (keeping keys the page doesn't edit) and write atomically, with a .bak."""
     try:
@@ -169,9 +189,10 @@ class Handler(BaseHTTPRequestHandler):
             data = self._json()
             if self.path == "/api/action":
                 action = data.get("action")
-                if action not in ("next", "prev", "goto", "pause", "full", "refetch"):
+                if action not in ("next", "prev", "goto", "pause", "full", "refetch", "sign", "rotate"):
                     raise Invalid("不認得的操作")
-                b.command(action, data.get("arg"))
+                arg = validate_sign(data.get("arg")) if action == "sign" else data.get("arg")
+                b.command(action, arg)
                 return self._send(200, {"ok": True})
             if self.path == "/api/config":
                 clean = validate(data.get("config") or {})
@@ -213,6 +234,7 @@ PAGE_HTML = r"""<!doctype html>
 @media (prefers-color-scheme:dark){:root{--bg:#121614;--card:#1a201d;--ink:#e3eae6;--muted:#9aa8a0;--line:#2d3632;
 --accent:#6fb592;--accent-ink:#0d1a14;--ok:#6fcf97;--warn:#f0b35a;--bad:#f28b82;--panel:#d9d6cc;color-scheme:dark}}
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 var(--f);
 padding:16px max(16px,env(safe-area-inset-right)) 40px max(16px,env(safe-area-inset-left))}
 main{max-width:720px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
@@ -235,7 +257,7 @@ button:disabled{opacity:.5;cursor:default}
 .ok{background:var(--ok)}.warn{background:var(--warn)}.bad{background:var(--bad)}
 .err{color:var(--bad);font-size:13px}
 label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted)}
-input[type=text],input[type=number],input[type=time]{font:15px var(--f);color:var(--ink);background:var(--bg);
+input[type=text],input[type=number],input[type=time],input[type=date]{font:15px var(--f);color:var(--ink);background:var(--bg);
 border:1px solid var(--line);border-radius:8px;padding:8px 10px;width:100%}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
 fieldset{border:none;padding:0;margin:0 0 16px;display:flex;flex-direction:column;gap:10px}
@@ -260,6 +282,21 @@ legend{font-weight:700;font-size:14px;margin-bottom:6px;padding:0}
     <button onclick="act('refetch')">重抓資料</button>
   </div>
   <div class="row" id="gotoRow" style="margin-top:10px"></div>
+</section>
+
+<section class="card" id="signCard">
+  <h2>狀態牌</h2>
+  <p class="sub" style="margin:-6px 0 10px">選一種狀態顯示在看板上，會一直停在那一頁（重開機也一樣），按「回到輪播」才恢復。</p>
+  <div class="row" id="signKinds" role="radiogroup" aria-label="狀態"></div>
+  <form id="signForm" onsubmit="showSign(event)" style="margin-top:12px;display:flex;flex-direction:column;gap:10px">
+    <label id="fPlace">地點（例如 越南 河內）<input id="sPlace" type="text" maxlength="16"></label>
+    <label id="fDate">回程日期<input id="sDate" type="date"></label>
+    <label id="fTime">回來時間<input id="sTime" type="time"></label>
+    <label>留言（選填）<input id="sNote" type="text" maxlength="24"></label>
+    <div class="row"><button class="primary" id="signBtn">顯示狀態牌</button>
+      <button type="button" onclick="act('rotate')">回到輪播</button><span class="sub" id="signNow"></span></div>
+    <div class="err" id="signErr" role="alert"></div>
+  </form>
 </section>
 
 <section class="card"><h2>狀態</h2><div class="status" id="status"></div></section>
@@ -305,14 +342,24 @@ function toast(t){const e=$("toast");e.textContent=t;e.hidden=false;clearTimeout
 async function api(p,body){const r=await fetch(p,body?{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}:{});
   const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||("HTTP "+r.status));return j}
 async function act(a,arg){try{await api("/api/action",{action:a,arg});toast({next:"換到下一頁",prev:"換到上一頁",pause:"已切換輪播",full:"全刷中…",refetch:"重新抓資料中",goto:"切換頁面"}[a]);setTimeout(poll,1500);setTimeout(poll,5000)}catch(e){toast(e.message)}}
+const SIGNS={trip:{name:"出差中",note:"急事請 LINE 或手機聯絡",time:""},off:{name:"下班了",note:"",time:"09:00"},away:{name:"暫離",note:"",time:""}};
+let KIND="away";
+function pickKind(k){KIND=k;$("signKinds").innerHTML=Object.entries(SIGNS).map(([key,v])=>`<button type="button" role="radio" aria-checked="${key===k}" class="chip ${key===k?"on":""}" onclick="pickKind('${key}')">${v.name}</button>`).join("");
+  $("fPlace").hidden=k!=="trip";$("fDate").hidden=k!=="trip";$("fTime").hidden=k==="trip";
+  $("fTime").firstChild.textContent=k==="off"?"明天幾點回來":"預計幾點回來（選填）";
+  if(k==="off"&&!$("sTime").value)$("sTime").value="09:00";if(k==="trip"&&!$("sNote").value)$("sNote").value=SIGNS.trip.note}
+async function showSign(ev){ev.preventDefault();$("signErr").textContent="";
+  const arg={kind:KIND,place:$("sPlace").value,back:KIND==="trip"?$("sDate").value:$("sTime").value,note:$("sNote").value};
+  try{await api("/api/action",{action:"sign",arg});toast(`顯示「${SIGNS[KIND].name}」`);setTimeout(poll,1500);setTimeout(poll,6000)}catch(e){$("signErr").textContent=e.message}}
 function ago(t){if(!t)return"尚未成功";const s=Math.round(Date.now()/1000-t);return s<60?s+" 秒前":s<3600?Math.round(s/60)+" 分鐘前":Math.round(s/3600)+" 小時前"}
 async function poll(){
   try{const s=await api("/api/status");
     $("where").textContent=`http://${s.ip||location.hostname}:${s.port}　·　${s.now}　·　已運作 ${Math.floor(s.uptime/3600)} 小時 ${Math.floor(s.uptime%3600/60)} 分`;
+    $("signNow").textContent=s.sign?`目前顯示：${SIGNS[s.sign.kind].name}`:"目前在輪播";
     $("pauseBtn").textContent=s.paused?"繼續輪播":"暫停輪播";$("pauseBtn").classList.toggle("on",s.paused);
     $("gotoRow").innerHTML=s.pages.map(p=>`<button class="chip ${p===s.page?"on":""}" onclick="act('goto','${p}')">${NAMES[p]||p}</button>`).join("");
     const lab={weather:"天氣",power:"台電",market:"台股．匯率"};
-    $("status").innerHTML=`<span>目前畫面</span><span>${s.night?"夜間（晚安）":(NAMES[s.page]||s.page||"—")}${s.paused?"（已暫停輪播）":""}</span>`+
+    $("status").innerHTML=`<span>目前畫面</span><span>${s.sign?"狀態牌："+SIGNS[s.sign.kind].name:s.night?"夜間（晚安）":(NAMES[s.page]||s.page||"—")}${s.paused?"（已暫停輪播）":""}</span>`+
       Object.entries(s.sources).map(([k,v])=>`<span>${lab[k]}</span><span><span class="dot ${v.ok?"ok":v.updated?"warn":"bad"}"></span>${ago(v.updated)}${v.error?`<span class="err">　${v.error.slice(0,80)}</span>`:""}</span>`).join("");
     const key=s.page+s.now+s.paused;if(key!==lastKey){lastKey=key;$("shot").src="/preview.png?"+Date.now()}
   }catch(e){$("where").textContent="連不上看板（重啟中？）"}
@@ -342,6 +389,6 @@ async function saveCfg(ev){
     let n=0;const t=setInterval(async()=>{n++;try{await api("/api/status");if(n>3){clearInterval(t);$("saveBtn").disabled=false;toast("已套用新設定");load();poll()}}catch(e){}if(n>40){clearInterval(t);$("saveBtn").disabled=false}},1000)}
   catch(e){$("formErr").textContent=e.message;$("saveBtn").disabled=false}
 }
-load().then(poll);setInterval(poll,10000);
+pickKind("away");load().then(poll);setInterval(poll,10000);
 </script></body></html>
 """

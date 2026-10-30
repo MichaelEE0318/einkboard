@@ -1,5 +1,6 @@
 """Main loop: once a minute (on the minute) pick the page, render, push to the panel."""
 import datetime as dt
+import json
 import logging
 import os
 import queue
@@ -71,6 +72,8 @@ class Board:
         self.started = time.time()
         self.restart_requested = False
         self.ip = ""
+        self.sign_path = os.path.join(cfg["cache_dir"], "sign.json")
+        self.sign = self._load_sign()   # 狀態牌（出差中 / 下班了 / 暫離），撐過重開機
 
     def _make_display(self):
         from .display import Eink, SimDisplay
@@ -95,7 +98,31 @@ class Board:
         return pages.page_clock(now, self.weather.data, self.cfg["location"]["name"],
                                 self.weather.stale and self.weather.data is not None)
 
+    # ------------------------------------------------------------------ status sign
+    def _load_sign(self):
+        try:
+            with open(self.sign_path, encoding="utf-8") as f:
+                sign = json.load(f)
+            return sign if sign.get("kind") in pages.STATUS_KINDS else None
+        except (OSError, ValueError, AttributeError):
+            return None
+
+    def _save_sign(self):
+        try:
+            os.makedirs(os.path.dirname(self.sign_path), exist_ok=True)
+            if self.sign:
+                tmp = self.sign_path + ".tmp"
+                with open(tmp, "w", encoding="utf-8") as f:
+                    json.dump(self.sign, f, ensure_ascii=False)
+                os.replace(tmp, self.sign_path)
+            elif os.path.exists(self.sign_path):
+                os.remove(self.sign_path)
+        except OSError as e:
+            log.warning("sign save: %s", e)
+
     def render(self, now):
+        if self.sign:                                 # a status sign beats rotation and night mode
+            return "sign:" + self.sign["kind"], pages.page_status(now, self.sign, self.weather.data)
         if is_night(now, self.cfg["night"]) and not self.paused:
             return "night", pages.page_night(now, self.weather.data)
         name = self.page_name(now)
@@ -133,6 +160,17 @@ class Board:
     def handle(self, action, arg=None):
         """Runs on the main loop thread (the only thread that touches the panel)."""
         now = self.now()
+        if action == "sign":
+            self.sign = dict(arg, since=now.isoformat(timespec="minutes"))
+            self._save_sign()
+            return True
+        if action == "rotate":                       # 回到輪播
+            self.sign, self.paused = None, None
+            self._save_sign()
+            return True
+        if action in ("next", "prev", "goto") and self.sign:   # flipping pages also takes the sign down
+            self.sign = None
+            self._save_sign()
         if action in ("next", "prev"):
             if self.paused:
                 i = self.pages.index(self.paused) if self.paused in self.pages else 0
@@ -166,6 +204,7 @@ class Board:
                 src[k] = {"ok": s.data is not None and not s.stale, "updated": getattr(s, "updated", 0),
                           "error": getattr(s, "error", None)}
         return {"page": self.current, "pages": self.pages, "paused": bool(self.paused), "ip": self.ip,
+                "sign": self.sign,
                 "port": self.cfg["web"]["port"], "uptime": int(time.time() - self.started),
                 "night": is_night(now, self.cfg["night"]), "now": now.strftime("%H:%M"), "sources": src}
 

@@ -567,3 +567,44 @@ def test_web_config_validates_and_saves(tmp_path):
         b._drain(); assert b.restart_requested
     finally:
         srv.shutdown()
+
+
+def test_status_signs_stick_until_rotate_and_survive_restart(tmp_path):
+    from einkboard.web import start_web
+    b = _board(tmp_path)
+    b.cfg["cache_dir"] = str(tmp_path); b.sign_path = str(tmp_path / "sign.json")
+    srv = start_web(b, 0, host="127.0.0.1", config_path=str(tmp_path / "config.yaml"))
+    port = srv.server_address[1]
+    try:
+        assert b.tick() == "clock"
+        assert _http(port, "/api/action", {"action": "sign", "arg": {"kind": "trip", "back": "11/5"}})[0] == 400
+        assert _http(port, "/api/action", {"action": "sign", "arg": {"kind": "away", "back": "25:99"}})[0] == 400
+        code, _ = _http(port, "/api/action", {"action": "sign",
+                        "arg": {"kind": "trip", "place": "越南 河內", "back": "2026-11-05", "note": "急事 LINE"}})
+        assert code == 200
+        b._drain(); assert b.tick() == "sign:trip"
+        b.now = lambda: dt.datetime(2026, 10, 30, 23, 45, tzinfo=TZ)        # night time…
+        assert b.tick() == "sign:trip"                                        # …the sign stays up
+        assert _http(port, "/api/status")[1]["sign"]["place"] == "越南 河內"
+        b2 = _board(tmp_path); b2.sign_path = str(tmp_path / "sign.json"); b2.sign = b2._load_sign()   # reboot
+        assert b2.sign and b2.sign["kind"] == "trip"
+        _http(port, "/api/action", {"action": "rotate"})
+        b._drain(); b.now = lambda: dt.datetime(2026, 10, 30, 13, 1, tzinfo=TZ)
+        assert b.tick() == "clock" and not (tmp_path / "sign.json").exists()
+    finally:
+        srv.shutdown()
+
+
+@pytest.mark.parametrize("info", [
+    {"kind": "trip", "place": "越南 河內．下龍灣", "back": "2026-11-05", "note": "急事請 LINE 或手機聯絡"},
+    {"kind": "trip"}, {"kind": "off", "back": "09:00"}, {"kind": "off"},
+    {"kind": "away", "back": "14:40", "since": "2026-10-30T13:52+08:00"}, {"kind": "away", "since": "bad"}])
+def test_status_pages_render(info):
+    img = pages.page_status(dt.datetime(2026, 10, 30, 14, 10, tzinfo=TZ), info, None)
+    assert img.size == (296, 128)
+
+
+def test_off_sign_says_next_monday_on_friday():
+    from einkboard.pages import _next_workday_label
+    assert _next_workday_label(dt.datetime(2026, 10, 30, 18, 0, tzinfo=TZ)) == "下週一"   # Friday
+    assert _next_workday_label(dt.datetime(2026, 10, 28, 18, 0, tzinfo=TZ)) == "明天"     # Wednesday
