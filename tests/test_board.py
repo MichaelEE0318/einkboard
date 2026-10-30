@@ -608,3 +608,10 @@ def test_off_sign_says_next_monday_on_friday():
     from einkboard.pages import _next_workday_label
     assert _next_workday_label(dt.datetime(2026, 10, 30, 18, 0, tzinfo=TZ)) == "下週一"   # Friday
     assert _next_workday_label(dt.datetime(2026, 10, 28, 18, 0, tzinfo=TZ)) == "明天"     # Wednesday
+
+
+def test_away_sign_is_static():
+    info = {"kind": "away", "back": "14:40", "note": "去 3F 開會", "since": "2026-10-30T13:52+08:00"}
+    a = pages.page_status(dt.datetime(2026, 10, 30, 14, 10, tzinfo=TZ), info)
+    b = pages.page_status(dt.datetime(2026, 10, 30, 15, 45, tzinfo=TZ), info)
+    assert a.tobytes() == b.tobytes()           # nothing changes over time -> no refreshes while away

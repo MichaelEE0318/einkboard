@@ -416,21 +416,14 @@ def page_off(now, info, wx=None):
 
 
 def page_away(now, info):
-    """暫離: back at what time, and how long I've been gone (updates every minute without flashing)."""
+    """暫離: back at what time + an optional note. Static on purpose (no departure time / time away)."""
     img, d = canvas()
     _status_frame(d, "暫離", lambda: _icon_cup(d, 46, 64))
     back = (info.get("back") or "").strip()
-    d.text((110, 46), f"預計 {back} 回來" if back else "馬上回來", font=cjk(18, True), fill=BLACK)
+    d.text((110, 50), f"預計 {back} 回來" if back else "馬上回來", font=cjk(18, True), fill=BLACK)
     note = (info.get("note") or "").strip()
     if note:
-        d.text((110, 74), fit(d, note, cjk(12), W - 118), font=cjk(12), fill=BLACK)
-    try:
-        since = dt.datetime.fromisoformat(info["since"])
-        mins = max(0, int((now - since).total_seconds() // 60))
-        gone = f"{mins // 60} 小時 {mins % 60} 分" if mins >= 60 else f"{mins} 分鐘"
-        d.text((110, H - 22), f"{since:%H:%M} 離開．已經 {gone}", font=cjk(11), fill=BLACK)
-    except (KeyError, ValueError, TypeError):
-        pass
+        d.text((110, 84), fit(d, note, cjk(14), W - 118), font=cjk(14), fill=BLACK)
     return img
 
 
