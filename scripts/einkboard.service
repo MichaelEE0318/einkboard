@@ -1,0 +1,18 @@
+[Unit]
+Description=E-paper desk board (clock / weather / Taipower / calendar)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@USER@
+SupplementaryGroups=gpio spi
+WorkingDirectory=@APP_DIR@
+Environment=EINKBOARD_CONFIG=@APP_DIR@/config.yaml
+ExecStart=@VENV@/bin/python -m einkboard.main
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=70
+
+[Install]
+WantedBy=multi-user.target
