@@ -191,6 +191,14 @@ FX_NAME = {"USD": "美元", "JPY": "日圓", "VND": "越南盾", "EUR": "歐元"
            "KRW": "韓元", "GBP": "英鎊", "AUD": "澳幣", "SGD": "新幣", "THB": "泰銖"}
 
 
+def chg_abs_str(v):
+    """Size of the move without sign: 1,173 / 20 / 4.2 / 0.65."""
+    if v is None:
+        return "--"
+    a = abs(v)
+    return f"{a:,.0f}" if a >= 100 else f"{a:,.2f}".rstrip("0").rstrip(".")
+
+
 def price_str(v):
     if v is None:
         return "--"
@@ -259,29 +267,38 @@ def page_market(now, mk, stale=False):
     fx = [(c, r) for c, r in (mk.get("fx") or {}).items()][:3]
     area = (92 if fx else H - 2) - 24
     rh = min(24, area // max(1, len(rows)))
-    y = 24
+    # change box: "▼1,173" left + "2.53%" right; one font size for every row (the largest that fits all)
+    bx0, bx1 = W - 79, W - 4
+    labels = []
     for q in rows:
+        pct, chg = q.get("pct"), q.get("chg")
+        arrow = "▲" if (pct or 0) > 0 else "▼" if (pct or 0) < 0 else ""
+        labels.append((f"{arrow}{chg_abs_str(chg)}", "--" if pct is None else f"{abs(pct):.2f}%"))
+    fsize = 10
+    for size in ((11, 10, 9, 8) if rh >= 21 else (10, 9, 8)):
+        f = cjk(size, True)
+        if all(d.textlength(a, font=f) + d.textlength(b, font=f) + 5 <= bx1 - bx0 - 6 for a, b in labels):
+            fsize = size
+            break
+    fbox = cjk(fsize, True)
+    y = 24
+    for q, (s1, s2) in zip(rows, labels):
         name = fit(d, q["name"] or q["code"], cjk(13, True), 72)
         d.text((6, y - 1), name, font=cjk(13, True), fill=BLACK)
         d.text((6 + d.textlength(name, font=cjk(13, True)) + 3, y + 3), q["code"], font=num(9, False), fill=BLACK)
-        sparkline(d, (mk.get("history") or {}).get(q["code"]), 112, y + 2, 158, y + rh - 5, q["prev"])
-        text_r(d, 222, y, price_str(q["price"]), num(14))
-        pct = q["pct"]
-        if pct is None:
-            text_r(d, W - 8, y + 1, "--", num(12))
-        else:
-            arrow = "▲" if pct > 0 else "▼" if pct < 0 else ""
-            s = f"{arrow}{abs(pct):.2f}%"
-            f = cjk(12 if rh >= 21 else 10, True)          # 4 rows -> smaller text so it fits the box
-            bx0, by0, by1 = W - 66, y, y + rh - 3
-            l, t, r, b = d.textbbox((0, 0), s, font=f)
-            ty = (by0 + by1) / 2 - (t + b) / 2              # centre the glyphs vertically in the box
-            if pct > 0:                    # 漲：實心（台灣紅色的位置）
-                d.rounded_rectangle([bx0, by0, W - 4, by1], radius=3, fill=BLACK)
-                text_r(d, W - 8, ty, s, f, fill=WHITE)
-            else:                          # 跌 / 平：空心
-                d.rounded_rectangle([bx0, by0, W - 4, by1], radius=3, outline=BLACK)
-                text_r(d, W - 8, ty, s, f)
+        sparkline(d, (mk.get("history") or {}).get(q["code"]), 110, y + 2, 146, y + rh - 5, q.get("prev"))
+        text_r(d, bx0 - 5, y, price_str(q["price"]), num(14))
+        up = (q.get("pct") or 0) > 0
+        by1 = y + rh - 3
+        if up:                             # 漲：實心（台灣紅色的位置）
+            d.rounded_rectangle([bx0, y, bx1, by1], radius=3, fill=BLACK)
+        else:                              # 跌 / 平：空心
+            d.rounded_rectangle([bx0, y, bx1, by1], radius=3, outline=BLACK)
+        fg = WHITE if up else BLACK
+        l, t, r, b = d.textbbox((0, 0), "▼0", font=fbox)
+        ty = (y + by1) / 2 - (t + b) / 2
+        d.text((bx0 + 3, ty), s1, font=fbox, fill=fg)
+        text_r(d, bx1 - 3, ty, s2, fbox, fill=fg)
         y += rh
     if not rows:
         d.text((6, 40), "在 config.yaml 的 market.stocks 加股票代號", font=cjk(12), fill=BLACK)
