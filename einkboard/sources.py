@@ -165,7 +165,12 @@ def parse_power(j):
     recs = j["records"] if isinstance(j, dict) and "records" in j else j
     if isinstance(recs, dict):
         recs = [recs]
-    r = recs[0]
+    # Taipower splits one snapshot into several records (now / today's forecast / yesterday / supply
+    # capacity) — merge them into one dict.
+    r = {}
+    for rec in recs:
+        if isinstance(rec, dict):
+            r.update(rec)
     load = _num(r.get("curr_load"))
     cap = _num(r.get("real_hr_maxi_sply_capacity"))
     util = _num(r.get("curr_util_rate"))

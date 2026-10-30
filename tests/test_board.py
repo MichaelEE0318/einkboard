@@ -423,3 +423,25 @@ def test_lan_ip_never_loopback_hostname_trick():
     from einkboard.main import lan_ip
     ip = lan_ip()
     assert ip == "" or not ip.startswith("127.0.1.")
+
+
+# exact response Michael got from the Pi on 2026-10-30 12:00
+TAIPOWER_REAL = {"success": "true", "result": {"resource_id": "-"}, "records": [
+    {"curr_load": "3432.5", "curr_util_rate": "79"},
+    {"fore_maxi_sply_capacity": "4106.0", "fore_peak_dema_load": "3450.0", "fore_peak_resv_capacity": "656.0",
+     "fore_peak_resv_rate": "19.02", "fore_peak_resv_indicator": "G", "fore_peak_hour_range": "13:00-16:00",
+     "publish_time": "115.10.30(\u4e94)11:50"},
+    {"yday_date": "115.10.29", "yday_maxi_sply_capacity": "4130.3", "yday_peak_dema_load": "3467.7",
+     "yday_peak_resv_capacity": "662.7", "yday_peak_resv_rate": "19.11", "yday_peak_resv_indicator": "G"},
+    {"real_hr_maxi_sply_capacity": "4315.7", "real_hr_peak_time": "2026.10.30 06:52"}]}
+
+
+def test_parse_power_merges_split_records():
+    p = parse_power(TAIPOWER_REAL)
+    assert p["load"] == 3432.5 and p["util"] == 79
+    assert p["cap"] == 4315.7
+    assert p["fore_rate"] == 19.02 and p["fore_resv"] == 656 and p["light"] == "green"
+    assert p["fore_hours"] == "13:00-16:00" and p["yday_rate"] == 19.11
+    assert p["publish"].endswith("11:50")
+    img = pages.page_power(dt.datetime(2026, 10, 30, 12, 0, tzinfo=TZ), p)
+    assert img.size == (296, 128)
