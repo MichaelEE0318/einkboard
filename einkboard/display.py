@@ -24,6 +24,7 @@ class Eink:
         # 沒有 RST 腳的模組（例如 Heltec 7 腳版）：深度睡眠只能靠硬體重置喚醒，所以永遠不進深度睡眠。
         # 電子紙不通電也會保留畫面，控制器待機電流只有微安級，差別不大。
         self.can_sleep = e.get("has_reset_pin", True)
+        self.page_passes = e.get("page_change_passes", 2)
         self.count = 0
         self.asleep = True
         self.last = None
@@ -39,7 +40,16 @@ class Eink:
             self.epd.display_Base(buf)                # full refresh (flashes once)
             self.asleep = False
         else:
-            self.epd.display_Partial(buf)
+            passes = 1
+            if self.last is not None and self.page_passes > 1:
+                old, new = self.last.tobytes(), img.tobytes()
+                changed = sum(a != b for a, b in zip(old, new)) / max(1, len(new))
+                if changed > 0.15:                     # whole-page change: drive twice to clear the ghost
+                    passes = self.page_passes
+            try:
+                self.epd.display_Partial(buf, passes=passes)
+            except TypeError:                          # Waveshare drivers take a single argument
+                self.epd.display_Partial(buf)
         self.count += 1
         self.last = img
         return True

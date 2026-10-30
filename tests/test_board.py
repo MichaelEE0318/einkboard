@@ -402,3 +402,24 @@ def test_s75a_lut_modes(monkeypatch):
     assert (0x22, bytes([0xC4])) in commands(log)
     strong = EPD.lut_1675(0x10, 0x01)
     assert strong[35] == 0x10 and strong[39] == 0x01
+
+
+def test_page_change_drives_twice(monkeypatch):
+    log = fake_hw(monkeypatch)
+    from einkboard import display
+    cfg = config.load("/nonexistent")
+    e = display.Eink(cfg)
+    now = dt.datetime(2026, 10, 30, 12, 0, tzinfo=TZ)
+    e.show(pages.page_boot("1.2.3.4"), force_full=True)
+    log.clear(); e.show(pages.page_power(now, None))                 # whole page changes
+    assert [c for c, _ in commands(log)].count(0x20) == 4             # 2 x (refresh + power off)
+    clock = pages.page_clock(now, None)
+    e.show(clock)
+    log.clear(); e.show(pages.page_clock(now.replace(minute=1), None)) # only the minute digit
+    assert [c for c, _ in commands(log)].count(0x20) == 2
+
+
+def test_lan_ip_never_loopback_hostname_trick():
+    from einkboard.main import lan_ip
+    ip = lan_ip()
+    assert ip == "" or not ip.startswith("127.0.1.")

@@ -85,6 +85,7 @@ class EPD:
         self.partial_mode = partial_mode
         self.partial_lut = False        # a full refresh reloads the OTP LUT, so reload ours before the next partial
         self.last_busy = (False, 0.0)
+        self.prev = None                # last image sent, for multi-pass partial updates
 
     # ---------------------------------------------------------------- low level
     def _cmd(self, c, *data):
@@ -181,13 +182,23 @@ class EPD:
         self._write(0x24, buf)
         self._update(self.UPDATE_FULL, 4.0)
         self.partial_lut = False
+        self.prev = bytes(buf)
 
     def display(self, buf):
         self.display_Base(buf)
 
-    def display_Partial(self, buf):
-        """Partial refresh (no flash, ~0.75 s): panel drives only pixels that differ between 0x24 (new)
-        and 0x26 (previous)."""
+    def display_Partial(self, buf, passes=1):
+        """Partial refresh (no flash): the panel drives only pixels that differ between 0x24 (new) and
+        0x26 (previous). passes > 1 re-drives the same changed pixels again (old image put back into
+        0x26), which pushes out the ghost of a whole-page change without a full, flashing refresh."""
+        prev = self.prev
+        for i in range(max(1, passes)):
+            if i and prev is not None:
+                self._write(0x26, prev)
+            self._partial_once(buf)
+        self.prev = bytes(buf)
+
+    def _partial_once(self, buf):
         if self.partial_mode == "otp_c4":
             self._write(0x24, buf)
             self._update(0xC4, 0.8)                 # Heltec HalLcd_Partial_Update()

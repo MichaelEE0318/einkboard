@@ -12,6 +12,17 @@ from .sources import Market, Power, Weather
 log = logging.getLogger("einkboard")
 
 
+def lan_ip():
+    """Address of the interface used for outbound traffic (gethostbyname(hostname) gives 127.0.1.1 on Debian).
+    UDP connect sends no packet; it only asks the kernel which source address it would use."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("8.8.8.8", 80))
+            return s.getsockname()[0]
+    except OSError:
+        return ""
+
+
 def _hm(s):
     h, m = s.split(":")
     return int(h) * 60 + int(m)
@@ -80,10 +91,7 @@ class Board:
         return name
 
     def run(self):
-        try:
-            ip = socket.gethostbyname(socket.gethostname())
-        except OSError:
-            ip = ""
+        ip = lan_ip()
         self.display.show(pages.page_boot(ip), force_full=True)
         for s in (self.weather, self.power, self.market):
             if s:
