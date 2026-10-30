@@ -479,7 +479,7 @@ def test_index_codes_get_short_names(tmp_path):
 
 def test_change_box_shrinks_font_for_big_moves():
     from einkboard.pages import chg_abs_str
-    assert chg_abs_str(-1173.4) == "1,173" and chg_abs_str(20) == "20" and chg_abs_str(-4.2) == "4.2"
+    assert chg_abs_str(-1173.4) == "1173" and chg_abs_str(20) == "20" and chg_abs_str(-4.2) == "4.2"
     assert chg_abs_str(-0.65) == "0.65" and chg_abs_str(None) == "--"
     q = {"t00": {"code": "t00", "name": "加權指數", "price": 43120, "prev": 46366, "chg": -3246, "pct": -7.0},
          "2330": {"code": "2330", "name": "台積電", "price": 2395, "prev": 2375, "chg": 20, "pct": 0.84},

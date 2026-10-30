@@ -192,11 +192,12 @@ FX_NAME = {"USD": "美元", "JPY": "日圓", "VND": "越南盾", "EUR": "歐元"
 
 
 def chg_abs_str(v):
-    """Size of the move without sign: 1,173 / 20 / 4.2 / 0.65."""
+    """Size of the move without sign: 1173 / 20 / 4.2 / 0.65 (no thousands comma: keeps a 4-digit index
+    move narrow enough for the larger font)."""
     if v is None:
         return "--"
     a = abs(v)
-    return f"{a:,.0f}" if a >= 100 else f"{a:,.2f}".rstrip("0").rstrip(".")
+    return f"{a:.0f}" if a >= 100 else f"{a:.2f}".rstrip("0").rstrip(".")
 
 
 def price_str(v):
@@ -268,7 +269,7 @@ def page_market(now, mk, stale=False):
     area = (92 if fx else H - 2) - 24
     rh = min(24, area // max(1, len(rows)))
     # change box: "▼1,173" left + "2.53%" right; one font size for every row (the largest that fits all)
-    bx0, bx1 = W - 79, W - 4
+    bx0, bx1 = W - 82, W - 4                          # 78 px: "▼1173  2.53%" fits at size 10
     labels = []
     for q in rows:
         pct, chg = q.get("pct"), q.get("chg")
