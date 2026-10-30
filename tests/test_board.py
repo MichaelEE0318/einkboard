@@ -604,10 +604,18 @@ def test_status_pages_render(info):
     assert img.size == (296, 128)
 
 
-def test_off_sign_says_next_monday_on_friday():
+@pytest.mark.parametrize("day,hour,label", [
+    (28, 18, "明天"),     # Wed evening
+    (30, 18, "下週一"),   # Fri evening
+    (31, 2, "下週一"),    # Sat 02:00 (not 「今天」)
+    (31, 14, "下週一"),   # Sat afternoon
+    (1, 20, "明天"),      # Sun evening -> Monday is tomorrow
+    (2, 2, "今天"),       # Mon 02:00
+])
+def test_off_sign_label(day, hour, label):
     from einkboard.pages import _next_workday_label
-    assert _next_workday_label(dt.datetime(2026, 10, 30, 18, 0, tzinfo=TZ)) == "下週一"   # Friday
-    assert _next_workday_label(dt.datetime(2026, 10, 28, 18, 0, tzinfo=TZ)) == "明天"     # Wednesday
+    month = 11 if day < 10 else 10
+    assert _next_workday_label(dt.datetime(2026, month, day, hour, 0, tzinfo=TZ)) == label
 
 
 def test_away_sign_is_static():
@@ -673,3 +681,29 @@ def test_web_night_page_option_validates(tmp_path):
     assert ok["night"]["page"] == "off" and ok["night"]["off_back"] == "08:30"
     with pytest.raises(Invalid):
         validate(dict(cfg, night=dict(cfg["night"], page="off", off_back="8點")))
+
+
+def test_weekend_all_day_night_window():
+    n = {"enabled": True, "start": "18:00", "end": "08:30", "weekend_all_day": True}
+    at = lambda m, d, h, mi=0: dt.datetime(2026, m, d, h, mi, tzinfo=TZ)
+    assert not is_night(at(10, 30, 17, 59), n)            # Fri before the start
+    assert is_night(at(10, 30, 18, 0), n)                 # Fri night starts
+    assert is_night(at(10, 31, 12, 0), n)                 # Sat noon
+    assert is_night(at(11, 1, 15, 0), n)                  # Sun afternoon
+    assert is_night(at(11, 2, 8, 0), n)                   # Mon early
+    assert not is_night(at(11, 2, 8, 30), n)              # Mon work starts
+    assert not is_night(at(10, 31, 12, 0), dict(n, weekend_all_day=False))
+
+
+def test_weekend_redraws_once_per_day(tmp_path):
+    b = _board(tmp_path)
+    b.sign_path = str(tmp_path / "sign.json")
+    b.cfg["night"].update(start="18:00", end="08:30", page="off", weekend_all_day=True)
+    times = [dt.datetime(2026, 10, 30, 18, 0, tzinfo=TZ), dt.datetime(2026, 10, 30, 23, 0, tzinfo=TZ),
+             dt.datetime(2026, 10, 31, 0, 1, tzinfo=TZ), dt.datetime(2026, 10, 31, 15, 0, tzinfo=TZ),
+             dt.datetime(2026, 11, 1, 0, 1, tzinfo=TZ), dt.datetime(2026, 11, 1, 20, 0, tzinfo=TZ),
+             dt.datetime(2026, 11, 2, 8, 0, tzinfo=TZ)]
+    it = iter(times); b.now = lambda: next(it)
+    names = [b.tick() for _ in times]
+    assert set(names) == {"night"}
+    assert b.display.fulls == 4          # Fri 18:00, Sat 00:01, Sun 00:01, Mon 08:00 (new day) — nothing in between

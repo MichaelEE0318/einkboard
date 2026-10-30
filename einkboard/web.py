@@ -35,6 +35,7 @@ def editable(cfg):
         "rotate_minutes": cfg["rotate_minutes"],
         "night": {"enabled": bool(cfg["night"].get("enabled")), "start": cfg["night"]["start"],
                   "end": cfg["night"]["end"], "page": cfg["night"].get("page", "night"),
+                  "weekend_all_day": bool(cfg["night"].get("weekend_all_day", True)),
                   "off_back": cfg["night"].get("off_back", "09:00"), "off_note": cfg["night"].get("off_note", "")},
         "market": {"stocks": list(cfg["market"]["stocks"]), "fx": list(cfg["market"]["fx"])},
         "eink": {"page_change_full": bool(e.get("page_change_full", True)),
@@ -101,6 +102,7 @@ def validate(new):
         "night": {"enabled": bool(night.get("enabled")), "start": _hhmm(night.get("start"), "夜間開始"),
                   "end": _hhmm(night.get("end"), "夜間結束"),
                   "page": night.get("page") if night.get("page") in ("night", "off") else "night",
+                  "weekend_all_day": bool(night.get("weekend_all_day")),
                   "off_back": _hhmm(night.get("off_back") or "09:00", "下班頁的回來時間"),
                   "off_note": _short(night.get("off_note"), 24, "下班頁的留言")},
         "market": {"stocks": stocks, "fx": fx},
@@ -334,6 +336,7 @@ legend{font-weight:700;font-size:14px;margin-bottom:6px;padding:0}
     <fieldset><legend>夜間</legend>
       <label class="check"><input id="nightOn" type="checkbox"> 時段內顯示固定畫面並停止刷新</label>
       <div class="grid"><label>開始<input id="nStart" type="time" required></label><label>結束<input id="nEnd" type="time" required></label></div>
+      <label class="check"><input id="nWeekend" type="checkbox"> 週末整天（週五晚上一路到週一早上，中間不輪播）</label>
       <div class="row" role="radiogroup" aria-label="夜間畫面">
         <label class="check"><input type="radio" name="nPage" id="nPageNight" value="night" onchange="nightPage()"> 晚安</label>
         <label class="check"><input type="radio" name="nPage" id="nPageOff" value="off" onchange="nightPage()"> 下班了</label>
@@ -394,7 +397,7 @@ async function load(){
   $("rotate").value=c.rotate_minutes;$("stocks").value=c.market.stocks.join(", ");$("fx").value=c.market.fx.join(", ");
   $("locname").value=c.location.name;$("lat").value=c.location.lat;$("lon").value=c.location.lon;
   $("nightOn").checked=c.night.enabled;$("nStart").value=c.night.start;$("nEnd").value=c.night.end;
-  $(c.night.page==="off"?"nPageOff":"nPageNight").checked=true;$("nOffBack").value=c.night.off_back||"09:00";$("nOffNote").value=c.night.off_note||"";nightPage();
+  $("nWeekend").checked=c.night.weekend_all_day;$(c.night.page==="off"?"nPageOff":"nPageNight").checked=true;$("nOffBack").value=c.night.off_back||"09:00";$("nOffNote").value=c.night.off_note||"";nightPage();
   $("pcf").checked=c.eink.page_change_full;$("frm").value=c.eink.full_refresh_minutes;$("rot").checked=c.eink.rotate180;$("inv").checked=c.eink.invert;
 }
 function nightPage(){$("nOffFields").hidden=!$("nPageOff").checked}
@@ -406,7 +409,7 @@ async function saveCfg(ev){
     market:{stocks:split($("stocks").value),fx:split($("fx").value.toUpperCase())},
     location:{name:$("locname").value.trim(),lat:+$("lat").value,lon:+$("lon").value},
     night:{enabled:$("nightOn").checked,start:$("nStart").value,end:$("nEnd").value,
-      page:$("nPageOff").checked?"off":"night",off_back:$("nOffBack").value||"09:00",off_note:$("nOffNote").value},
+      page:$("nPageOff").checked?"off":"night",weekend_all_day:$("nWeekend").checked,off_back:$("nOffBack").value||"09:00",off_note:$("nOffNote").value},
     eink:{page_change_full:$("pcf").checked,full_refresh_minutes:+$("frm").value,rotate180:$("rot").checked,invert:$("inv").checked}};
   $("saveBtn").disabled=true;
   try{await api("/api/config",{config:cfg,restart:true});toast("已儲存，看板重新啟動中…");

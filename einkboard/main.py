@@ -73,6 +73,11 @@ def is_night(now, night):
     if not night.get("enabled"):
         return False
     t, a, b = now.hour * 60 + now.minute, _hm(night["start"]), _hm(night["end"])
+    if night.get("weekend_all_day"):
+        # Friday from the night start, all of Saturday and Sunday, Monday until the night end
+        wd = now.weekday()
+        if wd in (5, 6) or (wd == 4 and t >= a) or (wd == 0 and t < b):
+            return True
     return a <= t or t < b if a > b else a <= t < b
 
 
@@ -96,6 +101,7 @@ class Board:
         self.display = display or self._make_display()
         self.pages = active_pages(cfg)
         self.night_shown = False
+        self.night_day = None
         self.last_page = None
         # live control from the web page
         self.commands = queue.Queue()
@@ -187,10 +193,12 @@ class Board:
         img = self.decorate(img)
         self.last_img, self.current = img, name
         if name == "night":
-            if not self.night_shown:                  # draw once, then let the panel sleep all night
+            # draw once, then leave the panel alone — except once a day at midnight, so a long (weekend)
+            # stretch still says 「明天」 on Sunday and shows the next day's weather
+            if not self.night_shown or self.night_day != now.date():
                 self.display.show(img, force_full=True)
                 self.display.sleep()
-                self.night_shown = True
+                self.night_shown, self.night_day = True, now.date()
             return name
         self.night_shown = False
         e = self.cfg["eink"]

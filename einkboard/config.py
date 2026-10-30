@@ -10,6 +10,7 @@ DEFAULTS = {
     "rotate_minutes": 5,                       # 每頁停留幾分鐘
     "night": {"enabled": True, "start": "23:30", "end": "07:00",    # 夜間：畫一次後停止刷新
               "page": "night",                  # 夜間顯示：night = 晚安、off = 下班了
+              "weekend_all_day": True,          # 週末整天：週五夜間開始 → 週一早上結束，中間不輪播
               "off_back": "09:00", "off_note": ""},   # 選「下班了」時：幾點回來、留言
     "weather": {"refresh_minutes": 15},
     "power": {"refresh_minutes": 10,

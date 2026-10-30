@@ -14,6 +14,7 @@ night:                            # 夜間時段：畫一次固定畫面後停�
   start: "23:30"
   end: "07:00"
   page: night                     # night = 晚安；off = 下班了（「明天／下週一 09:00 見」＋明天天氣）
+  weekend_all_day: true           # 週末整天：週五夜間開始 → 週一早上結束，週末白天不輪播
   off_back: "09:00"               # 選 off 時：幾點回來
   off_note: ""                    # 選 off 時：留言（選填）
 

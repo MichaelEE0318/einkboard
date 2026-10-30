@@ -393,9 +393,14 @@ def page_trip(now, info):
 
 
 def _next_workday_label(now):
-    if now.hour < 6:
+    """When I'm back, seen from `now`: Mon–Thu evening -> 明天, Fri/Sat -> 下週一, Sun -> 明天;
+    before 06:00 on a weekday it's still the same working day -> 今天."""
+    wd = now.weekday()
+    if now.hour < 6 and wd <= 4:
         return "今天"
-    return "下週一" if now.weekday() >= 4 else "明天"      # Fri / Sat / Sun -> Monday
+    if wd in (4, 5):
+        return "下週一"
+    return "明天"
 
 
 def page_off(now, info, wx=None):
