@@ -212,8 +212,8 @@ def fx_str(code, rate):
 
 def sparkline(d, pts, x0, y0, x1, y1, prev=None):
     """Today's prices (minute_of_day, price) between 09:00 and 13:30; dotted line = previous close."""
-    if not pts or len(pts) < 2:
-        return
+    if not pts or len(pts) < 2 or pts[-1][0] - pts[0][0] < 15:
+        return                                  # under 15 min of data (e.g. just restarted): skip, it looks broken
     lo = min(p for _, p in pts)
     hi = max(p for _, p in pts)
     if prev:
@@ -272,14 +272,16 @@ def page_market(now, mk, stale=False):
         else:
             arrow = "▲" if pct > 0 else "▼" if pct < 0 else ""
             s = f"{arrow}{abs(pct):.2f}%"
-            f = cjk(12, True)
-            bx0 = W - 66
+            f = cjk(12 if rh >= 21 else 10, True)          # 4 rows -> smaller text so it fits the box
+            bx0, by0, by1 = W - 66, y, y + rh - 3
+            l, t, r, b = d.textbbox((0, 0), s, font=f)
+            ty = (by0 + by1) / 2 - (t + b) / 2              # centre the glyphs vertically in the box
             if pct > 0:                    # 漲：實心（台灣紅色的位置）
-                d.rounded_rectangle([bx0, y, W - 4, y + rh - 5], radius=3, fill=BLACK)
-                text_r(d, W - 8, y, s, f, fill=WHITE)
+                d.rounded_rectangle([bx0, by0, W - 4, by1], radius=3, fill=BLACK)
+                text_r(d, W - 8, ty, s, f, fill=WHITE)
             else:                          # 跌 / 平：空心
-                d.rounded_rectangle([bx0, y, W - 4, y + rh - 5], radius=3, outline=BLACK)
-                text_r(d, W - 8, y, s, f)
+                d.rounded_rectangle([bx0, by0, W - 4, by1], radius=3, outline=BLACK)
+                text_r(d, W - 8, ty, s, f)
         y += rh
     if not rows:
         d.text((6, 40), "在 config.yaml 的 market.stocks 加股票代號", font=cjk(12), fill=BLACK)

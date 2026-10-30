@@ -98,6 +98,7 @@ class Board:
     def run(self):
         ip = lan_ip()
         self.display.show(pages.page_boot(ip), force_full=True)
+        self.last_page = "boot"                       # boot -> first page counts as a page change (full refresh)
         for s in (self.weather, self.power, self.market):
             if s:
                 s.start()
