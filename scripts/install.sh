@@ -38,7 +38,8 @@ systemctl enable einkboard.service
 
 echo
 echo "完成！接下來："
-echo "  1) 測螢幕：   $VENV/bin/python -m tools.einktest"
+echo "（服務已設為開機自動啟動。重開機後要跑測試，請先 sudo systemctl stop einkboard）"
+echo "  1) 測螢幕：   sudo systemctl stop einkboard; $VENV/bin/python -m tools.einktest"
 echo "  2) 改設定：   nano $APP_DIR/config.yaml   （座標、行事曆網址）"
 echo "  3) 啟動：     sudo systemctl start einkboard"
 echo "  4) 看紀錄：   journalctl -u einkboard -f"

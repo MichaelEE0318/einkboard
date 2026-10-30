@@ -15,7 +15,19 @@ from einkboard import fonts  # noqa: E402
 args = [a for a in sys.argv[1:] if not a.startswith("--")]
 driver = args[0] if args else "epd2in9_V2"
 print(f"einktest：使用 waveshare_epd.{driver}（BUSY=GPIO24 DC=GPIO25 CS=GPIO8；RST 沒接也可以）")
-epd = importlib.import_module(f"waveshare_epd.{driver}").EPD()
+import subprocess  # noqa: E402
+
+for svc in ("einkboard", "airstation"):   # 背景服務會佔住 GPIO，測試前先提醒
+    if subprocess.run(["systemctl", "is-active", "--quiet", svc]).returncode == 0:
+        print(f"⚠ {svc} 服務正在執行，會佔住螢幕腳位。請先執行：sudo systemctl stop {svc}")
+        sys.exit(1)
+try:
+    epd = importlib.import_module(f"waveshare_epd.{driver}").EPD()
+except Exception as e:  # lgpio.error: 'GPIO busy'
+    if "busy" in str(e).lower():
+        print("GPIO 被其他程式佔用。用這行找出是誰：sudo lsof /dev/gpiochip* 或 systemctl list-units --state=running")
+        sys.exit(1)
+    raise
 
 img = Image.new("1", (296, 128), 255)
 d = ImageDraw.Draw(img)
