@@ -644,3 +644,32 @@ def test_wifi_icon_on_every_page(tmp_path):
     for state in [(3, True, True), (1, True, True), (2, True, False), (3, False, True)]:
         img = pages.draw_wifi(blank.copy(), *state)
         assert img.crop((270, 0, 296, 16)).tobytes() != blank.crop((270, 0, 296, 16)).tobytes()
+
+
+def test_night_window_can_show_off_sign(tmp_path):
+    b = _board(tmp_path)
+    b.sign_path = str(tmp_path / "sign.json")
+    b.cfg["night"].update(start="18:00", end="08:00", page="off", off_back="08:30", off_note="明早去案場")
+    b.now = lambda: dt.datetime(2026, 10, 30, 18, 5, tzinfo=TZ)          # Friday evening
+    assert b.tick() == "night"
+    expect = pages.draw_wifi(pages.page_off(b.now(), {"kind": "off", "back": "08:30", "note": "明早去案場"}, None),
+                             b.wifi.bars, *b.wifi_reader()[:1], b.internet_ok())
+    assert b.last_img.tobytes() == expect.tobytes()                      # 下週一 08:30 見
+    fulls = b.display.fulls
+    b.now = lambda: dt.datetime(2026, 10, 30, 19, 0, tzinfo=TZ)
+    b.tick(); assert b.display.fulls == fulls                             # drawn once, then left alone
+    b.cfg["night"]["page"] = "night"; b.night_shown = False
+    b.now = lambda: dt.datetime(2026, 10, 30, 23, 45, tzinfo=TZ)
+    b.tick()
+    assert b.last_img.tobytes() != expect.tobytes()                      # 晚安 again
+
+
+def test_web_night_page_option_validates(tmp_path):
+    from einkboard.web import Invalid, editable, validate
+    b = _board(tmp_path)
+    cfg = editable(b.cfg)
+    assert cfg["night"]["page"] == "night"
+    ok = validate(dict(cfg, night=dict(cfg["night"], page="off", off_back="08:30", off_note="明早去案場")))
+    assert ok["night"]["page"] == "off" and ok["night"]["off_back"] == "08:30"
+    with pytest.raises(Invalid):
+        validate(dict(cfg, night=dict(cfg["night"], page="off", off_back="8點")))

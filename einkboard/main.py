@@ -162,6 +162,10 @@ class Board:
         if self.sign:                                 # a status sign beats rotation and night mode
             return "sign:" + self.sign["kind"], pages.page_status(now, self.sign, self.weather.data)
         if is_night(now, self.cfg["night"]) and not self.paused:
+            n = self.cfg["night"]
+            if n.get("page") == "off":                 # 夜間改顯示「下班了」
+                info = {"kind": "off", "back": n.get("off_back") or "09:00", "note": n.get("off_note") or ""}
+                return "night", pages.page_off(now, info, self.weather.data)
             return "night", pages.page_night(now, self.weather.data)
         name = self.page_name(now)
         return name, self.render_page(name, now)

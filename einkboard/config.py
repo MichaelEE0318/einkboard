@@ -8,7 +8,9 @@ DEFAULTS = {
     "location": {"name": "台北", "lat": 25.0330, "lon": 121.5654, "tz": "Asia/Taipei"},
     "pages": ["clock", "power", "market"],     # 輪播順序
     "rotate_minutes": 5,                       # 每頁停留幾分鐘
-    "night": {"enabled": True, "start": "23:30", "end": "07:00"},   # 夜間停止刷新
+    "night": {"enabled": True, "start": "23:30", "end": "07:00",    # 夜間：畫一次後停止刷新
+              "page": "night",                  # 夜間顯示：night = 晚安、off = 下班了
+              "off_back": "09:00", "off_note": ""},   # 選「下班了」時：幾點回來、留言
     "weather": {"refresh_minutes": 15},
     "power": {"refresh_minutes": 10,
               "url": "https://service.taipower.com.tw/data/opendata/apply/file/d006020/001.json"},

@@ -9,10 +9,13 @@ location:
 pages: [clock, power, market]     # 輪播順序，不要的拿掉
 rotate_minutes: 5                 # 每頁停留分鐘數
 
-night:                            # 夜間顯示「晚安」後停止刷新
+night:                            # 夜間時段：畫一次固定畫面後停止刷新
   enabled: true
   start: "23:30"
   end: "07:00"
+  page: night                     # night = 晚安；off = 下班了（「明天／下週一 09:00 見」＋明天天氣）
+  off_back: "09:00"               # 選 off 時：幾點回來
+  off_note: ""                    # 選 off 時：留言（選填）
 
 market:
   stocks: ["t00", "2330", "0050"]    # 台股代號，上市上櫃 ETF 都可以，最多 4 檔；t00 = 加權指數、o00 = 櫃買指數

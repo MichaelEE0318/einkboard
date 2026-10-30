@@ -33,7 +33,9 @@ def editable(cfg):
         "location": {k: cfg["location"][k] for k in ("name", "lat", "lon")},
         "pages": list(cfg["pages"]),
         "rotate_minutes": cfg["rotate_minutes"],
-        "night": dict(cfg["night"]),
+        "night": {"enabled": bool(cfg["night"].get("enabled")), "start": cfg["night"]["start"],
+                  "end": cfg["night"]["end"], "page": cfg["night"].get("page", "night"),
+                  "off_back": cfg["night"].get("off_back", "09:00"), "off_note": cfg["night"].get("off_note", "")},
         "market": {"stocks": list(cfg["market"]["stocks"]), "fx": list(cfg["market"]["fx"])},
         "eink": {"page_change_full": bool(e.get("page_change_full", True)),
                  "full_refresh_minutes": int(e.get("full_refresh_minutes", 60)),
@@ -53,6 +55,13 @@ def _num(v, lo, hi, name, cast=float):
     if not lo <= x <= hi:
         raise Invalid(f"{name} 要介於 {lo} 到 {hi}")
     return x
+
+
+def _short(v, n, name):
+    v = str(v or "").strip()
+    if len(v) > n:
+        raise Invalid(f"{name}最多 {n} 個字")
+    return v
 
 
 def _hhmm(v, name):
@@ -90,7 +99,10 @@ def validate(new):
         "pages": pages,
         "rotate_minutes": _num(new.get("rotate_minutes"), 1, 60, "每頁停留分鐘", int),
         "night": {"enabled": bool(night.get("enabled")), "start": _hhmm(night.get("start"), "夜間開始"),
-                  "end": _hhmm(night.get("end"), "夜間結束")},
+                  "end": _hhmm(night.get("end"), "夜間結束"),
+                  "page": night.get("page") if night.get("page") in ("night", "off") else "night",
+                  "off_back": _hhmm(night.get("off_back") or "09:00", "下班頁的回來時間"),
+                  "off_note": _short(night.get("off_note"), 24, "下班頁的留言")},
         "market": {"stocks": stocks, "fx": fx},
         "eink": {"page_change_full": bool(e.get("page_change_full")),
                  "full_refresh_minutes": _num(e.get("full_refresh_minutes"), 5, 240, "定時全刷分鐘", int),
@@ -320,8 +332,16 @@ legend{font-weight:700;font-size:14px;margin-bottom:6px;padding:0}
       </div>
     </fieldset>
     <fieldset><legend>夜間</legend>
-      <label class="check"><input id="nightOn" type="checkbox"> 夜間顯示「晚安」並停止刷新</label>
+      <label class="check"><input id="nightOn" type="checkbox"> 時段內顯示固定畫面並停止刷新</label>
       <div class="grid"><label>開始<input id="nStart" type="time" required></label><label>結束<input id="nEnd" type="time" required></label></div>
+      <div class="row" role="radiogroup" aria-label="夜間畫面">
+        <label class="check"><input type="radio" name="nPage" id="nPageNight" value="night" onchange="nightPage()"> 晚安</label>
+        <label class="check"><input type="radio" name="nPage" id="nPageOff" value="off" onchange="nightPage()"> 下班了</label>
+      </div>
+      <div class="grid" id="nOffFields">
+        <label>幾點回來<input id="nOffBack" type="time"></label>
+        <label>留言（選填）<input id="nOffNote" type="text" maxlength="24"></label>
+      </div>
     </fieldset>
     <fieldset><legend>螢幕刷新</legend>
       <label class="check"><input id="pcf" type="checkbox"> 換頁時全刷（閃一下，沒有殘影）</label>
@@ -374,8 +394,10 @@ async function load(){
   $("rotate").value=c.rotate_minutes;$("stocks").value=c.market.stocks.join(", ");$("fx").value=c.market.fx.join(", ");
   $("locname").value=c.location.name;$("lat").value=c.location.lat;$("lon").value=c.location.lon;
   $("nightOn").checked=c.night.enabled;$("nStart").value=c.night.start;$("nEnd").value=c.night.end;
+  $(c.night.page==="off"?"nPageOff":"nPageNight").checked=true;$("nOffBack").value=c.night.off_back||"09:00";$("nOffNote").value=c.night.off_note||"";nightPage();
   $("pcf").checked=c.eink.page_change_full;$("frm").value=c.eink.full_refresh_minutes;$("rot").checked=c.eink.rotate180;$("inv").checked=c.eink.invert;
 }
+function nightPage(){$("nOffFields").hidden=!$("nPageOff").checked}
 const split=v=>v.split(/[\s,，、]+/).map(x=>x.trim()).filter(Boolean);
 async function saveCfg(ev){
   ev.preventDefault();$("formErr").textContent="";
@@ -383,7 +405,8 @@ async function saveCfg(ev){
   const cfg={pages:ORDER,rotate_minutes:+$("rotate").value,
     market:{stocks:split($("stocks").value),fx:split($("fx").value.toUpperCase())},
     location:{name:$("locname").value.trim(),lat:+$("lat").value,lon:+$("lon").value},
-    night:{enabled:$("nightOn").checked,start:$("nStart").value,end:$("nEnd").value},
+    night:{enabled:$("nightOn").checked,start:$("nStart").value,end:$("nEnd").value,
+      page:$("nPageOff").checked?"off":"night",off_back:$("nOffBack").value||"09:00",off_note:$("nOffNote").value},
     eink:{page_change_full:$("pcf").checked,full_refresh_minutes:+$("frm").value,rotate180:$("rot").checked,invert:$("inv").checked}};
   $("saveBtn").disabled=true;
   try{await api("/api/config",{config:cfg,restart:true});toast("已儲存，看板重新啟動中…");
