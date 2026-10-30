@@ -20,9 +20,10 @@ market:
   fx_refresh_minutes: 30
 
 eink:
-  driver: epd2in9_V2
+  driver: heltec290               # Heltec 2.9"；Waveshare 模組改成 epd2in9_V2
   full_refresh_every: 30          # 每 N 次局部刷新做一次全刷（清殘影）；整點也會全刷
   rotate180: false                # 畫面上下顛倒就改 true
+  invert: false                   # 黑白顛倒（黑底白字）就改 true
   has_reset_pin: false            # Heltec 7 腳模組（VCC GND D/C SDI CS CLK BUSY）沒有 RST → false
                                   # 有 RST 腳的模組（Waveshare 8/9 腳）改 true，夜間可深度睡眠
 

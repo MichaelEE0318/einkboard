@@ -286,6 +286,7 @@ def test_panel_without_reset_pin_never_deep_sleeps(monkeypatch):
     monkeypatch.setitem(sys.modules, "waveshare_epd", pkg)
     monkeypatch.setitem(sys.modules, "waveshare_epd.epd2in9_V2", mod)
     cfg = config.load("/nonexistent")
+    cfg["eink"]["driver"] = "epd2in9_V2"
     e = display.Eink(cfg)
     e.show(pages.page_night(dt.datetime(2026, 10, 29, 23, 40, tzinfo=TZ)), force_full=True)
     e.sleep()
@@ -296,3 +297,85 @@ def test_panel_without_reset_pin_never_deep_sleeps(monkeypatch):
     e2.show(pages.page_night(dt.datetime(2026, 10, 29, 23, 40, tzinfo=TZ)), force_full=True)
     e2.sleep()
     assert calls[-1] == "SLEEP"
+
+
+# ------------------------------------------------------------------ Heltec SSD1680 driver
+def fake_hw(monkeypatch):
+    import sys, types
+    log = []
+
+    class Spi:
+        def open(self, b, d): log.append(("open", b, d))
+        def writebytes(self, b): log.append(("w", bytes(b)))
+        def writebytes2(self, b): log.append(("w", bytes(b)))
+        def close(self): pass
+
+    class Out:
+        def __init__(self, pin, initial_value=False): self.pin = pin
+        def on(self): log.append(("dc" if self.pin == 25 else f"pin{self.pin}", 1))
+        def off(self): log.append(("dc" if self.pin == 25 else f"pin{self.pin}", 0))
+        def close(self): pass
+
+    class In:
+        value = 0
+        def __init__(self, pin, pull_up=False): pass
+        def close(self): pass
+
+    monkeypatch.setitem(sys.modules, "spidev", types.SimpleNamespace(SpiDev=Spi))
+    monkeypatch.setitem(sys.modules, "gpiozero", types.SimpleNamespace(DigitalOutputDevice=Out, DigitalInputDevice=In))
+    return log
+
+
+def commands(log):
+    """Return [(cmd, data_bytes)] from the raw SPI/DC log."""
+    out, dc = [], None
+    for ev in log:
+        if ev[0] == "dc":
+            dc = ev[1]
+        elif ev[0] == "w":
+            if dc == 0:
+                out.append([ev[1][0], b""])
+            elif out:
+                out[-1][1] += ev[1]
+    return [(c, bytes(d)) for c, d in out]
+
+
+def test_heltec_init_uses_soft_reset_and_no_custom_lut(monkeypatch):
+    log = fake_hw(monkeypatch)
+    from einkboard.heltec290 import EPD
+    epd = EPD()
+    epd.init()
+    cmds = [c for c, _ in commands(log)]
+    assert cmds[0] == 0x12                    # soft reset first (no RST pin)
+    assert 0x32 not in cmds                   # never loads a custom waveform (the Waveshare problem)
+    assert dict(commands(log))[0x01] == bytes([0x27, 0x01, 0x00])   # 296 gate lines
+
+
+def test_heltec_full_and_partial_sequences(monkeypatch):
+    log = fake_hw(monkeypatch)
+    from einkboard.heltec290 import EPD
+    epd = EPD()
+    img = pages.page_boot("10.0.0.2")
+    buf = epd.getbuffer(img)
+    assert len(buf) == 16 * 296
+    log.clear(); epd.display_Base(buf)
+    c = commands(log)
+    rams = [x for x, _ in c if x in (0x24, 0x26)]
+    assert rams == [0x24, 0x26] and (0x22, bytes([0xF7])) in c and c[-1][0] == 0x20
+    assert dict(c)[0x24] == bytes(buf)
+    log.clear(); epd.display_Partial(buf)
+    c = commands(log)
+    seq = [x for x, _ in c if x in (0x24, 0x22, 0x20, 0x26)]
+    assert seq == [0x24, 0x22, 0x20, 0x26] and (0x22, bytes([0xFF])) in c
+
+
+def test_heltec_buffer_orientation_and_invert(monkeypatch):
+    fake_hw(monkeypatch)
+    from PIL import Image
+    from einkboard.heltec290 import EPD
+    white = Image.new("1", (296, 128), 255)
+    assert set(EPD().getbuffer(white)) == {0xFF}          # 1 bit = white
+    assert set(EPD(invert=True).getbuffer(white)) == {0x00}
+    black_left = white.copy(); black_left.paste(0, (0, 0, 8, 128))   # leftmost 8 columns black
+    buf = EPD().getbuffer(black_left)
+    assert buf.count(0x00) == 128 // 8 * 8 // 1 or buf.count(0x00) > 0

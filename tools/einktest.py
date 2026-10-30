@@ -12,9 +12,16 @@ from PIL import Image, ImageDraw  # noqa: E402
 
 from einkboard import fonts  # noqa: E402
 
+from einkboard import config  # noqa: E402
+from einkboard.display import make_epd  # noqa: E402
+
+ecfg = config.load(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "config.yaml"))["eink"]
 args = [a for a in sys.argv[1:] if not a.startswith("--")]
-driver = args[0] if args else "epd2in9_V2"
-print(f"einktest：使用 waveshare_epd.{driver}（BUSY=GPIO24 DC=GPIO25 CS=GPIO8；RST 沒接也可以）")
+if args:
+    ecfg["driver"] = args[0]                   # e.g. python -m tools.einktest epd2in9_V2
+if "--invert" in sys.argv:
+    ecfg["invert"] = True
+print(f"einktest：驅動 {ecfg['driver']}（BUSY=GPIO24 DC=GPIO25 CS=GPIO8；RST 沒接也可以）")
 import subprocess  # noqa: E402
 
 for svc in ("einkboard", "airstation"):   # 背景服務會佔住 GPIO，測試前先提醒
@@ -22,7 +29,7 @@ for svc in ("einkboard", "airstation"):   # 背景服務會佔住 GPIO，測試�
         print(f"⚠ {svc} 服務正在執行，會佔住螢幕腳位。請先執行：sudo systemctl stop {svc}")
         sys.exit(1)
 try:
-    epd = importlib.import_module(f"waveshare_epd.{driver}").EPD()
+    epd = make_epd(ecfg)
 except Exception as e:  # lgpio.error: 'GPIO busy'
     if "busy" in str(e).lower():
         print("GPIO 被其他程式佔用。用這行找出是誰：sudo lsof /dev/gpiochip* 或 systemctl list-units --state=running")
@@ -46,10 +53,10 @@ for n in range(1, 6):
     epd.display_Partial(epd.getbuffer(img))
     time.sleep(1)
 
-input("看到「電子紙測試 OK」和 partial 5/5 了嗎？按 Enter 清除畫面…")
+input("看到白底黑字的「電子紙測試 OK」和 partial 5/5 了嗎？（黑白顛倒就加 --invert 再跑一次）按 Enter 清除畫面…")
 print("3/3 清除畫面")
 epd.init()
 epd.Clear(0xFF)
-if "--sleep" in sys.argv:      # 只有接了 RST 的模組才能深度睡眠，否則下次會叫不醒（要拔電重開）
+if "--sleep" in sys.argv and ecfg.get("has_reset_pin"):      # 只有接了 RST 的模組才能深度睡眠，否則下次會叫不醒（要拔電重開）
     epd.sleep()
 print("完成")

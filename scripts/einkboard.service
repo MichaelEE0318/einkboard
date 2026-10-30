@@ -1,5 +1,5 @@
 [Unit]
-Description=E-paper desk board (clock / weather / Taipower / calendar)
+Description=E-paper desk board (clock / weather / Taipower / TW stocks)
 After=network-online.target
 Wants=network-online.target
 

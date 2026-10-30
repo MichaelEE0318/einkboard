@@ -15,8 +15,10 @@ DEFAULTS = {
     "market": {"stocks": ["2330", "0050", "2308"],   # 台股代號（上市上櫃都可以，最多 4 檔）
                "fx": ["USD", "JPY", "VND"],         # 對新台幣，最多 3 種
                "fx_refresh_minutes": 30},
-    "eink": {"driver": "epd2in9_V2", "full_refresh_every": 30, "rotate180": False,
-             "has_reset_pin": False},   # Heltec 2.9" 7 腳模組沒有 RST：不能進深度睡眠
+    "eink": {"driver": "heltec290",           # Heltec 2.9"（用面板內建波形）；Waveshare 模組改 epd2in9_V2
+             "full_refresh_every": 30, "rotate180": False,
+             "invert": False,                  # 黑白顛倒時改 True
+             "has_reset_pin": False},          # Heltec 7 腳模組沒有 RST：不能進深度睡眠
     "cache_dir": "/var/lib/einkboard",         # 行情快取（重開機後保留走勢與最後報價）
     "simulate": False,                         # True：不碰硬體，畫面存成 PNG
     "sim_dir": "/tmp/einkboard",
