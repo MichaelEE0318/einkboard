@@ -385,3 +385,20 @@ def test_heltec_buffer_orientation_and_invert(monkeypatch):
     black_left = white.copy(); black_left.paste(0, (0, 0, 8, 128))   # leftmost 8 columns black
     buf = EPD().getbuffer(black_left)
     assert buf.count(0x00) == 128 // 8 * 8 // 1 or buf.count(0x00) > 0
+
+
+def test_s75a_lut_modes(monkeypatch):
+    log = fake_hw(monkeypatch)
+    from einkboard.heltec290 import EPD
+    assert len(EPD.lut_1675()) == 70
+    epd = EPD(partial_mode="lut_cc")
+    epd.init()
+    assert (0x74, bytes([0x54])) in commands(log) and (0x7E, bytes([0x3B])) in commands(log)
+    buf = epd.getbuffer(pages.page_boot())
+    log.clear(); epd.display_Partial(buf)
+    c = commands(log)
+    assert len(dict(c)[0x32]) == 70 and (0x22, bytes([0xCC])) in c
+    log.clear(); EPD(partial_mode="lut_c4").display_Partial(buf)
+    assert (0x22, bytes([0xC4])) in commands(log)
+    strong = EPD.lut_1675(0x10, 0x01)
+    assert strong[35] == 0x10 and strong[39] == 0x01

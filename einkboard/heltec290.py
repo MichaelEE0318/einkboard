@@ -49,7 +49,24 @@ class EPD:
     #   "gx_cc"  : DEPG0290BxS800 (SSD1680): load GxEPD2's partial LUT, refresh 0xCC (~0.75 s, no flash)
     #   "otp_c4" : DEPG0290BxS75A (SSD1675A): Heltec's own method, built-in LUT, refresh 0xC4
     #   "otp_ff" : built-in "display mode 2" (works on both, but flashes like a full refresh)
-    PARTIAL_MODES = ("gx_cc", "otp_c4", "otp_ff")
+    #   "lut_cc" / "lut_c4" / "lut_strong": S75A (SSD1675A) with a 70-byte partial LUT (no flashing)
+    PARTIAL_MODES = ("gx_cc", "otp_c4", "otp_ff", "lut_cc", "lut_c4", "lut_strong")
+    S75A_MODES = ("otp_c4", "lut_cc", "lut_c4", "lut_strong")
+
+    @staticmethod
+    def lut_1675(tp=0x0A, rp=0x00):
+        """70-byte SSD1675A partial waveform: 5 VS rows x 7 groups + 7 groups x (TP A-D, RP).
+        Same voltage pattern as GxEPD2's SSD1680 partial LUT (BW -> VSL, WB -> VSH1, BB/WW hold),
+        in the SSD1675A layout (Waveshare 2.13" V2 uses this one). tp = frames, rp = extra repeats."""
+        vs = [
+            [0x00, 0x40, 0, 0, 0, 0, 0],   # LUT0 BB
+            [0x80, 0x80, 0, 0, 0, 0, 0],   # LUT1 BW
+            [0x40, 0x40, 0, 0, 0, 0, 0],   # LUT2 WB
+            [0x00, 0x80, 0, 0, 0, 0, 0],   # LUT3 WW
+            [0x00, 0x00, 0, 0, 0, 0, 0],   # LUT4 VCOM
+        ]
+        groups = [[tp, 0, 0, 0, rp]] + [[0, 0, 0, 0, 0]] * 6
+        return bytes(sum(vs, []) + sum(groups, []))
 
     def __init__(self, dc=25, busy=24, rst=None, spi_bus=0, spi_dev=0, hz=2_000_000, invert=False,
                  partial_mode="gx_cc"):
@@ -119,7 +136,7 @@ class EPD:
         self._cmd(0x12)                             # software reset (works without a RST pin)
         time.sleep(0.01)
         self._wait()
-        if self.partial_mode == "otp_c4":           # Heltec S75A init: analog / digital block control
+        if self.partial_mode in self.S75A_MODES:    # Heltec S75A init: analog / digital block control
             self._cmd(0x74, 0x54)
             self._cmd(0x7E, 0x3B)
         self._cmd(0x01, (HEIGHT - 1) & 0xFF, (HEIGHT - 1) >> 8, 0x00)   # gate lines 296
@@ -174,6 +191,20 @@ class EPD:
         if self.partial_mode == "otp_c4":
             self._write(0x24, buf)
             self._update(0xC4, 0.8)                 # Heltec HalLcd_Partial_Update()
+            self._write(0x26, buf)
+            return
+        if self.partial_mode in ("lut_cc", "lut_c4", "lut_strong"):
+            if not self.partial_lut:
+                lut = self.lut_1675(0x10, 0x01) if self.partial_mode == "lut_strong" else self.lut_1675()
+                self._cmd(0x32, *lut)
+                self.partial_lut = True
+            self._write(0x24, buf)
+            self._update(0xC4 if self.partial_mode == "lut_c4" else 0xCC, 0.4)
+            busy = self.last_busy
+            self._cmd(0x22, self.POWER_OFF)
+            self._cmd(0x20)
+            self._wait(0.15)
+            self.last_busy = busy
             self._write(0x26, buf)
             return
         if self.partial_mode == "otp_ff":

@@ -35,7 +35,8 @@ if "--modes" in sys.argv:
     big = fonts.get(30, bold=True, cjk=True)
     small = fonts.get(16, bold=True, cjk=True)
     results = {}
-    for mode in HEPD.PARTIAL_MODES:
+    modes = HEPD.PARTIAL_MODES if "all" in sys.argv else ("lut_cc", "lut_c4", "lut_strong", "otp_c4")
+    for mode in modes:
         print(f"\n=== 模式 {mode} ===")
         epd = make_epd(dict(ecfg, partial_mode=mode))
         img = Image.new("1", (296, 128), 255)
@@ -54,11 +55,15 @@ if "--modes" in sys.argv:
             time.sleep(0.8)
         changed = input("   螢幕上的「第 1→3 次」有更新嗎？(y/n) ").strip().lower().startswith("y")
         flashed = changed and input("   更新時有黑白閃爍嗎？(y/n) ").strip().lower().startswith("y")
-        results[mode] = (changed, flashed)
+        crisp = changed and input("   字夠黑、舊字有清乾淨嗎？(y/n) ").strip().lower().startswith("y")
+        results[mode] = (changed, flashed, crisp)
         if hasattr(epd, "close"):
             epd.close()
-    good = [m for m, (c, f) in results.items() if c and not f] or [m for m, (c, f) in results.items() if c]
-    print("\n結果：", {m: ("有更新" if c else "沒反應") + ("、會閃" if f else "") for m, (c, f) in results.items()})
+    good = ([m for m, (c, f, k) in results.items() if c and not f and k]
+            or [m for m, (c, f, k) in results.items() if c and not f]
+            or [m for m, (c, f, k) in results.items() if c])
+    print("\n結果：", {m: ("有更新" if c else "沒反應") + ("、會閃" if f else "") + ("" if not c else "、清楚" if k else "、偏淡/殘影")
+                      for m, (c, f, k) in results.items()})
     if good:
         print(f"建議使用 {good[0]}，執行：")
         print(f"  grep -q partial_mode config.yaml && sed -i 's/partial_mode: .*/partial_mode: {good[0]}/' config.yaml "
