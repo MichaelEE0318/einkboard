@@ -20,7 +20,9 @@ DEFAULTS = {
              "rotate180": False,
              "invert": False,                  # 黑白顛倒時改 True
              "partial_mode": "lut_cc",
-             "page_change_passes": 2,          # 換頁（大面積改變）時局部刷新幾次，越多殘影越少          # 局部刷新方式：gx_cc / otp_c4 / otp_ff（跑 einktest --modes 找出能用的）
+             "page_change_passes": 2,          # 換頁（大面積改變）時局部刷新幾次，越多殘影越少
+             "page_change_whitewash": False,   # 換頁時先刷成全白再畫新頁（殘影最少，換頁稍慢）
+             "lut_tp": None, "lut_rp": None,   # 局部波形強度（None = 預設）；跑 einktest --ghost 找最佳值          # 局部刷新方式：gx_cc / otp_c4 / otp_ff（跑 einktest --modes 找出能用的）
              "has_reset_pin": False},          # Heltec 7 腳模組沒有 RST：不能進深度睡眠
     "cache_dir": "/var/lib/einkboard",         # 行情快取（重開機後保留走勢與最後報價）
     "simulate": False,                         # True：不碰硬體，畫面存成 PNG

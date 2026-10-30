@@ -29,6 +29,49 @@ for svc in ("einkboard", "airstation"):   # 背景服務會佔住 GPIO，測試�
         print(f"⚠ {svc} 服務正在執行，會佔住螢幕腳位。請先執行：sudo systemctl stop {svc}")
         sys.exit(1)
 
+if "--ghost" in sys.argv:
+    # 殘影測試：全刷密集頁 → 局部換到另一頁，比較 6 組波形強度 / 換頁策略
+    import datetime as _dt
+    from zoneinfo import ZoneInfo
+    from einkboard import pages
+    from einkboard.display import Eink
+    from tools.preview import MK, PW
+    now = _dt.datetime.now(ZoneInfo("Asia/Taipei"))
+    page_a, page_b = pages.page_market(now, MK), pages.page_power(now, PW)
+    cands = {  # name: (lut_tp, lut_rp, passes, whitewash)
+        "A": (0x0A, 0, 2, False), "B": (0x14, 0, 2, False), "C": (0x14, 1, 2, False),
+        "D": (0x1E, 2, 1, False), "E": (0x14, 1, 2, True), "F": (0x1E, 2, 2, True)}
+    scores = {}
+    for name, (tp, rp, passes, wash) in cands.items():
+        cfg = config.load(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "config.yaml"))
+        cfg["eink"].update(ecfg)
+        cfg["eink"].update(partial_mode="lut_cc", lut_tp=tp, lut_rp=rp, page_change_passes=passes,
+                           page_change_whitewash=wash)
+        print(f"\n=== 設定 {name}：驅動 {tp} 格 × {rp + 1} 次、換頁刷 {passes} 次{'、先刷白' if wash else ''} ===")
+        disp = Eink(cfg)
+        disp.show(page_a, force_full=True)
+        print("   已全刷台股頁（會閃，正常）。2 秒後局部換成台電頁…")
+        time.sleep(2)
+        t = time.time()
+        disp.show(page_b)
+        print(f"   換頁花了 {time.time() - t:.1f}s")
+        while True:
+            ans = input("   台電頁上看得到台股頁的殘影嗎？0=看不到 1=輕微 2=明顯：").strip()
+            if ans in ("0", "1", "2"):
+                break
+        flash = input("   換頁時有黑白閃爍嗎？(y/n) ").strip().lower().startswith("y")
+        scores[name] = (int(ans) + (3 if flash else 0), time.time() - t)
+        if hasattr(disp.epd, "close"):
+            disp.epd.close()
+    best = min(scores, key=lambda n: (scores[n][0], scores[n][1]))
+    tp, rp, passes, wash = cands[best]
+    print("\n殘影分數（越低越好，閃爍 +3）：", {n: v[0] for n, v in scores.items()})
+    print(f"建議設定 {best}。打開 config.yaml，在 eink: 底下改成／加上這幾行：")
+    print(f"  partial_mode: lut_cc\n  lut_tp: {tp}\n  lut_rp: {rp}\n  page_change_passes: {passes}\n"
+          f"  page_change_whitewash: {'true' if wash else 'false'}")
+    print("然後 sudo systemctl restart einkboard")
+    sys.exit(0)
+
 if "--modes" in sys.argv:
     # 逐一試三種局部刷新方式，問使用者哪個有效，最後給出要寫進 config.yaml 的設定
     from einkboard.heltec290 import EPD as HEPD

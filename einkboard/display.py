@@ -3,6 +3,8 @@ import importlib
 import logging
 import os
 
+from PIL import Image
+
 log = logging.getLogger(__name__)
 
 
@@ -11,7 +13,7 @@ def make_epd(e):
     if e["driver"] == "heltec290":
         from .heltec290 import EPD
         return EPD(rst=17 if e.get("has_reset_pin") else None, invert=e.get("invert", False),
-                   partial_mode=e.get("partial_mode", "gx_cc"))
+                   partial_mode=e.get("partial_mode", "gx_cc"), lut_tp=e.get("lut_tp"), lut_rp=e.get("lut_rp"))
     return importlib.import_module(f"waveshare_epd.{e['driver']}").EPD()
 
 
@@ -25,6 +27,7 @@ class Eink:
         # 電子紙不通電也會保留畫面，控制器待機電流只有微安級，差別不大。
         self.can_sleep = e.get("has_reset_pin", True)
         self.page_passes = e.get("page_change_passes", 2)
+        self.whitewash = e.get("page_change_whitewash", False)
         self.count = 0
         self.asleep = True
         self.last = None
@@ -40,13 +43,15 @@ class Eink:
             self.epd.display_Base(buf)                # full refresh (flashes once)
             self.asleep = False
         else:
-            passes = 1
-            if self.last is not None and self.page_passes > 1:
+            passes, page_change = 1, False
+            if self.last is not None:
                 old, new = self.last.tobytes(), img.tobytes()
-                changed = sum(a != b for a, b in zip(old, new)) / max(1, len(new))
-                if changed > 0.15:                     # whole-page change: drive twice to clear the ghost
-                    passes = self.page_passes
+                page_change = sum(a != b for a, b in zip(old, new)) / max(1, len(new)) > 0.15
+                if page_change:                        # whole-page change: drive harder to clear the ghost
+                    passes = max(1, self.page_passes)
             try:
+                if page_change and self.whitewash:     # old page -> white -> new page
+                    self.epd.display_Partial(self.epd.getbuffer(Image.new("1", img.size, 255)), passes=passes)
                 self.epd.display_Partial(buf, passes=passes)
             except TypeError:                          # Waveshare drivers take a single argument
                 self.epd.display_Partial(buf)

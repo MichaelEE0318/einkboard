@@ -69,7 +69,7 @@ class EPD:
         return bytes(sum(vs, []) + sum(groups, []))
 
     def __init__(self, dc=25, busy=24, rst=None, spi_bus=0, spi_dev=0, hz=2_000_000, invert=False,
-                 partial_mode="gx_cc"):
+                 partial_mode="gx_cc", lut_tp=None, lut_rp=None):
         import spidev
         from gpiozero import DigitalInputDevice, DigitalOutputDevice
         self.dc = DigitalOutputDevice(dc)
@@ -83,6 +83,10 @@ class EPD:
         if partial_mode not in self.PARTIAL_MODES:
             raise ValueError(f"partial_mode must be one of {self.PARTIAL_MODES}")
         self.partial_mode = partial_mode
+        # lut_* waveform strength: tp = frames per drive, rp = extra repeats (None = mode default)
+        strong = partial_mode == "lut_strong"
+        self.lut_tp = lut_tp if lut_tp is not None else (0x10 if strong else 0x0A)
+        self.lut_rp = lut_rp if lut_rp is not None else (0x01 if strong else 0x00)
         self.partial_lut = False        # a full refresh reloads the OTP LUT, so reload ours before the next partial
         self.last_busy = (False, 0.0)
         self.prev = None                # last image sent, for multi-pass partial updates
@@ -206,11 +210,10 @@ class EPD:
             return
         if self.partial_mode in ("lut_cc", "lut_c4", "lut_strong"):
             if not self.partial_lut:
-                lut = self.lut_1675(0x10, 0x01) if self.partial_mode == "lut_strong" else self.lut_1675()
-                self._cmd(0x32, *lut)
+                self._cmd(0x32, *self.lut_1675(self.lut_tp, self.lut_rp))
                 self.partial_lut = True
             self._write(0x24, buf)
-            self._update(0xC4 if self.partial_mode == "lut_c4" else 0xCC, 0.4)
+            self._update(0xC4 if self.partial_mode == "lut_c4" else 0xCC, 0.4 + 0.02 * self.lut_tp * (self.lut_rp + 1))
             busy = self.last_busy
             self._cmd(0x22, self.POWER_OFF)
             self._cmd(0x20)
