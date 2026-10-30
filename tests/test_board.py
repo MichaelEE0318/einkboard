@@ -486,3 +486,84 @@ def test_change_box_shrinks_font_for_big_moves():
          "x": {"code": "x", "name": "測試", "price": None, "prev": None, "chg": None, "pct": None}}
     img = pages.page_market(dt.datetime(2026, 10, 30, 13, 0, tzinfo=TZ), {"quotes": q, "fx": {}, "open": True})
     assert img.size == (296, 128)
+
+
+# ------------------------------------------------------------------ settings web page
+def _board(tmp_path):
+    cfg = config.load("/nonexistent")
+    cfg.update(simulate=True, sim_dir=str(tmp_path))
+    b = Board(cfg)
+    b.weather, b.power, b.market = FakeSource(), FakeSource(), FakeSource()
+    b.now = lambda: dt.datetime(2026, 10, 30, 13, 1, tzinfo=TZ)
+    return b
+
+
+def _http(port, path, body=None):
+    import json, urllib.request, urllib.error
+    req = urllib.request.Request(f"http://127.0.0.1:{port}{path}", method="POST" if body is not None else "GET",
+                                 data=json.dumps(body).encode() if body is not None else None,
+                                 headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=5) as r:
+            data = r.read()
+            return r.status, (json.loads(data) if r.headers.get_content_type() == "application/json" else data)
+    except urllib.error.HTTPError as e:
+        return e.code, json.loads(e.read())
+
+
+def test_web_controls_flip_and_pause_pages(tmp_path):
+    from einkboard.web import start_web
+    b = _board(tmp_path)
+    srv = start_web(b, 0, host="127.0.0.1", config_path=str(tmp_path / "config.yaml"))
+    port = srv.server_address[1]
+    try:
+        assert b.tick() == "clock"
+        code, html = _http(port, "/")
+        assert code == 200 and "電子紙看板" in html.decode()
+        assert _http(port, "/preview.png")[0] == 200
+        _http(port, "/api/action", {"action": "next"})
+        b._drain(); assert b.tick() == "power"
+        _http(port, "/api/action", {"action": "goto", "arg": "market"})
+        b._drain(); assert b.tick() == "market"
+        _http(port, "/api/action", {"action": "pause"})
+        b._drain()
+        b.now = lambda: dt.datetime(2026, 10, 30, 13, 9, tzinfo=TZ)   # rotation would move on…
+        assert b.tick() == "market"                                     # …but it's paused
+        _http(port, "/api/action", {"action": "prev"})
+        b._drain(); assert b.tick() == "power"
+        st = _http(port, "/api/status")[1]
+        assert st["paused"] and st["page"] == "power" and set(st["sources"]) == {"weather", "power", "market"}
+        assert _http(port, "/api/action", {"action": "rm -rf"})[0] == 400
+    finally:
+        srv.shutdown()
+
+
+def test_web_config_validates_and_saves(tmp_path):
+    from einkboard.web import editable, start_web
+    import yaml
+    path = tmp_path / "config.yaml"
+    path.write_text("eink:\n  driver: heltec290\n  lut_tp: 20\nmarket:\n  stocks: ['2330']\n", encoding="utf-8")
+    b = _board(tmp_path)
+    srv = start_web(b, 0, host="127.0.0.1", config_path=str(path))
+    port = srv.server_address[1]
+    try:
+        cfg = _http(port, "/api/config")[1]["config"]
+        assert cfg == editable(b.cfg)
+        bad = dict(cfg, market={"stocks": ["2330", "0050", "t00", "o00", "2308"], "fx": ["USD"]})
+        code, err = _http(port, "/api/config", {"config": bad, "restart": False})
+        assert code == 400 and "4 檔" in err["error"]
+        bad = dict(cfg, night=dict(cfg["night"], start="25:00"))
+        assert "HH:MM" in _http(port, "/api/config", {"config": bad, "restart": False})[1]["error"]
+        good = dict(cfg, pages=["market", "clock"], rotate_minutes=10,
+                    market={"stocks": ["t00", "2330"], "fx": ["usd", "VND"]})
+        assert _http(port, "/api/config", {"config": good, "restart": False})[0] == 200
+        saved = yaml.safe_load(path.read_text(encoding="utf-8"))
+        assert saved["pages"] == ["market", "clock"] and saved["rotate_minutes"] == 10
+        assert saved["market"]["stocks"] == ["t00", "2330"] and saved["market"]["fx"] == ["USD", "VND"]
+        assert saved["eink"]["driver"] == "heltec290" and saved["eink"]["lut_tp"] == 20   # untouched keys kept
+        assert (tmp_path / "config.yaml.bak").exists()
+        _http(port, "/api/config", {"config": good, "restart": True})
+        import time as _t; _t.sleep(0.8)
+        b._drain(); assert b.restart_requested
+    finally:
+        srv.shutdown()

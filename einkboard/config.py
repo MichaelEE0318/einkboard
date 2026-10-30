@@ -26,6 +26,7 @@ DEFAULTS = {
              "page_change_whitewash": False,   # 換頁時先刷成全白再畫新頁（殘影最少，換頁稍慢）
              "lut_tp": 20, "lut_rp": 0,        # 局部波形強度（einktest --ghost 在 Heltec S75A 實測：設定 B）
              "has_reset_pin": False},          # Heltec 7 腳模組沒有 RST：不能進深度睡眠
+    "web": {"enabled": True, "port": 8080},    # 設定網頁：http://<Pi 的 IP>:8080
     "cache_dir": "/var/lib/einkboard",         # 行情快取（重開機後保留走勢與最後報價）
     "simulate": False,                         # True：不碰硬體，畫面存成 PNG
     "sim_dir": "/tmp/einkboard",

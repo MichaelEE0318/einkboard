@@ -1,8 +1,12 @@
 """Main loop: once a minute (on the minute) pick the page, render, push to the panel."""
 import datetime as dt
 import logging
+import os
+import queue
 import signal
 import socket
+import sys
+import threading
 import time
 from zoneinfo import ZoneInfo
 
@@ -56,6 +60,17 @@ class Board:
         self.pages = active_pages(cfg)
         self.night_shown = False
         self.last_page = None
+        # live control from the web page
+        self.commands = queue.Queue()
+        self.wake = threading.Event()
+        self.offset = 0                 # 下一頁 / 上一頁 shift the rotation
+        self.paused = None              # page name while rotation is paused
+        self.force_full_next = False
+        self.last_img = None
+        self.current = None
+        self.started = time.time()
+        self.restart_requested = False
+        self.ip = ""
 
     def _make_display(self):
         from .display import Eink, SimDisplay
@@ -66,20 +81,30 @@ class Board:
     def now(self):
         return dt.datetime.now(self.tz)
 
-    def render(self, now):
-        if is_night(now, self.cfg["night"]):
-            return "night", pages.page_night(now, self.weather.data)
-        name = page_at(now, self.pages, self.cfg["rotate_minutes"])
+    def page_name(self, now):
+        if self.paused:
+            return self.paused
+        slot = (now.hour * 60 + now.minute) // max(1, self.cfg["rotate_minutes"])
+        return self.pages[(slot + self.offset) % len(self.pages)]
+
+    def render_page(self, name, now):
         if name == "power":
-            return name, pages.page_power(now, self.power.data, self.power.stale and self.power.data is not None)
+            return pages.page_power(now, self.power.data, self.power.stale and self.power.data is not None)
         if name == "market":
-            return name, pages.page_market(now, self.market.data, self.market.stale and self.market.data is not None)
-        return "clock", pages.page_clock(now, self.weather.data, self.cfg["location"]["name"],
-                                         self.weather.stale and self.weather.data is not None)
+            return pages.page_market(now, self.market.data, self.market.stale and self.market.data is not None)
+        return pages.page_clock(now, self.weather.data, self.cfg["location"]["name"],
+                                self.weather.stale and self.weather.data is not None)
+
+    def render(self, now):
+        if is_night(now, self.cfg["night"]) and not self.paused:
+            return "night", pages.page_night(now, self.weather.data)
+        name = self.page_name(now)
+        return name, self.render_page(name, now)
 
     def tick(self):
         now = self.now()
         name, img = self.render(now)
+        self.last_img, self.current = img, name
         if name == "night":
             if not self.night_shown:                  # draw once, then let the panel sleep all night
                 self.display.show(img, force_full=True)
@@ -91,32 +116,104 @@ class Board:
         every = max(1, int(e.get("full_refresh_minutes", 60)))
         clean = (now.hour * 60 + now.minute) % every == 0          # periodic clean-up of partial-refresh ghosting
         turn = e.get("page_change_full", True) and self.last_page not in (None, name)
-        self.display.show(img, force_full=clean or turn)
+        self.display.show(img, force_full=clean or turn or self.force_full_next)
+        self.force_full_next = False
         self.last_page = name
         return name
 
+    # ------------------------------------------------------------------ live control (web page)
+    def sources(self):
+        return {"weather": self.weather, "power": self.power, "market": self.market}
+
+    def command(self, action, arg=None):
+        """Called from the web thread: queue it and wake the main loop."""
+        self.commands.put((action, arg))
+        self.wake.set()
+
+    def handle(self, action, arg=None):
+        """Runs on the main loop thread (the only thread that touches the panel)."""
+        now = self.now()
+        if action in ("next", "prev"):
+            if self.paused:
+                i = self.pages.index(self.paused) if self.paused in self.pages else 0
+                self.paused = self.pages[(i + (1 if action == "next" else -1)) % len(self.pages)]
+            else:
+                self.offset += 1 if action == "next" else -1
+        elif action == "goto" and arg in self.pages:
+            if self.paused:
+                self.paused = arg
+            else:
+                self.offset += (self.pages.index(arg) - self.pages.index(self.page_name(now))) % len(self.pages)
+        elif action == "pause":
+            self.paused = self.page_name(now) if not self.paused else None
+        elif action == "full":
+            self.force_full_next = True
+        elif action == "refetch":
+            for s in self.sources().values():
+                if s:
+                    threading.Thread(target=s.poll_once, daemon=True).start()
+            return False                              # redraw happens once data arrives (next minute)
+        elif action == "restart":
+            self.restart_requested = True
+            return False
+        return True
+
+    def status(self):
+        now = self.now()
+        src = {}
+        for k, s in self.sources().items():
+            if s:
+                src[k] = {"ok": s.data is not None and not s.stale, "updated": getattr(s, "updated", 0),
+                          "error": getattr(s, "error", None)}
+        return {"page": self.current, "pages": self.pages, "paused": bool(self.paused), "ip": self.ip,
+                "port": self.cfg["web"]["port"], "uptime": int(time.time() - self.started),
+                "night": is_night(now, self.cfg["night"]), "now": now.strftime("%H:%M"), "sources": src}
+
+    def _drain(self):
+        redraw = False
+        while True:
+            try:
+                action, arg = self.commands.get_nowait()
+            except queue.Empty:
+                return redraw
+            try:
+                redraw |= bool(self.handle(action, arg))
+            except Exception:
+                log.exception("command %s failed", action)
+
     def run(self):
-        ip = lan_ip()
-        self.display.show(pages.page_boot(ip), force_full=True)
+        self.ip = lan_ip()
+        if self.cfg["web"]["enabled"]:
+            from .web import start_web
+            start_web(self, self.cfg["web"]["port"])
+        self.display.show(pages.page_boot(self.ip, self.cfg["web"]["port"] if self.cfg["web"]["enabled"] else None),
+                          force_full=True)
         self.last_page = "boot"                       # boot -> first page counts as a page change (full refresh)
-        for s in (self.weather, self.power, self.market):
+        for s in self.sources().values():
             if s:
                 s.start()
         time.sleep(8)                                 # give the first fetches a moment
         stop = []
         signal.signal(signal.SIGTERM, lambda *_: stop.append(1))
-        while not stop:
+        while not stop and not self.restart_requested:
             try:
+                self._drain()
                 self.tick()
             except Exception:
                 log.exception("tick failed")
-            time.sleep(60 - time.time() % 60 + 0.5)    # wake just after each minute boundary
+            # sleep until just after the next minute boundary — or until the web page sends a command
+            self.wake.wait(60 - time.time() % 60 + 0.5)
+            self.wake.clear()
         self.display.sleep()
+        return 75 if self.restart_requested else 0
 
 
 def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    Board(config.load()).run()
+    code = Board(config.load()).run()
+    # exit code 75 = "restart me": systemd's Restart=on-failure brings the service back with the new config
+    sys.stdout.flush()
+    os._exit(code)
 
 
 if __name__ == "__main__":

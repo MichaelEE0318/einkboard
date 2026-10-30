@@ -333,10 +333,13 @@ def page_night(now, wx=None):
     return img
 
 
-def page_boot(ip=""):
+def page_boot(ip="", port=None):
     img, d = canvas()
-    d.text((8, 20), "電子紙看板 啟動中", font=cjk(20, True), fill=BLACK)
-    d.text((8, 60), "正在連線取得天氣、台電、股價匯率…", font=cjk(12), fill=BLACK)
-    if ip:
+    d.text((8, 14), "電子紙看板 啟動中", font=cjk(20, True), fill=BLACK)
+    d.text((8, 48), "正在連線取得天氣、台電、股價匯率…", font=cjk(12), fill=BLACK)
+    if ip and port:
+        d.text((8, 78), "設定網頁", font=cjk(11, True), fill=BLACK)
+        d.text((8, 94), f"http://{ip}:{port}", font=num(15), fill=BLACK)
+    elif ip:
         d.text((8, 90), f"IP {ip}", font=num(14), fill=BLACK)
     return img
