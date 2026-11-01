@@ -354,6 +354,140 @@ def _icon_cup(d, cx, cy):
         d.arc([x - 4, cy - 24, x + 4, cy - 12], 270, 90, fill=BLACK, width=2)
 
 
+# ------------------------------------------------------------------ 字卡圖示（左邊 98 px 的格子，中心約 (48, 64)）
+def _icon_people(d, cx, cy):                    # 開會：兩個人＋桌子
+    for dx, r in ((-14, 9), (14, 9)):
+        d.ellipse([cx + dx - r, cy - 30, cx + dx + r, cy - 30 + 2 * r], fill=BLACK)
+        d.pieslice([cx + dx - 16, cy - 8, cx + dx + 16, cy + 24], 180, 360, fill=BLACK)
+    d.rectangle([cx - 36, cy + 10, cx + 36, cy + 15], fill=BLACK)
+    d.rectangle([cx - 30, cy + 15, cx - 26, cy + 32], fill=BLACK)
+    d.rectangle([cx + 26, cy + 15, cx + 30, cy + 32], fill=BLACK)
+
+
+def _icon_phone(d, cx, cy):                     # 電話中／講電話
+    d.rounded_rectangle([cx - 16, cy - 32, cx + 16, cy + 32], radius=6, fill=BLACK)
+    d.rectangle([cx - 11, cy - 23, cx + 11, cy + 18], fill=WHITE)
+    d.ellipse([cx - 3, cy + 22, cx + 3, cy + 28], fill=WHITE)
+    for r in (8, 15):                           # sound waves
+        d.arc([cx + 18 - r, cy - 30 - r, cx + 18 + r, cy - 30 + r], 300, 30, fill=BLACK, width=3)
+
+
+def _icon_clock(d, cx, cy):                     # 稍等／時間
+    d.ellipse([cx - 32, cy - 32, cx + 32, cy + 32], outline=BLACK, width=5)
+    for k in range(12):
+        import math
+        a = math.radians(k * 30)
+        r1 = 23 if k % 3 else 20
+        d.line([cx + r1 * math.sin(a), cy - r1 * math.cos(a), cx + 26 * math.sin(a), cy - 26 * math.cos(a)],
+               fill=BLACK, width=2)
+    d.line([cx, cy, cx, cy - 18], fill=BLACK, width=4)
+    d.line([cx, cy, cx + 13, cy + 7], fill=BLACK, width=4)
+    d.ellipse([cx - 4, cy - 4, cx + 4, cy + 4], fill=BLACK)
+
+
+def _icon_house(d, cx, cy):                     # 在家工作
+    d.polygon([(cx - 38, cy - 2), (cx, cy - 36), (cx + 38, cy - 2)], fill=BLACK)
+    d.rectangle([cx - 28, cy - 4, cx + 28, cy + 32], fill=BLACK)
+    d.rectangle([cx - 8, cy + 10, cx + 8, cy + 32], fill=WHITE)
+    d.rectangle([cx + 14, cy + 4, cx + 22, cy + 12], fill=WHITE)
+    d.rectangle([cx + 18, cy - 32, cx + 26, cy - 16], fill=BLACK)   # chimney
+
+
+def _icon_bowl(d, cx, cy):                      # 用餐／午休
+    d.chord([cx - 34, cy - 22, cx + 34, cy + 36], 0, 180, fill=BLACK)
+    d.rectangle([cx - 14, cy + 30, cx + 14, cy + 34], fill=BLACK)
+    d.line([cx + 4, cy - 34, cx + 30, cy + 4], fill=BLACK, width=3)   # chopsticks
+    d.line([cx + 14, cy - 36, cx + 36, cy], fill=BLACK, width=3)
+    for x in (cx - 16, cx - 4):                 # steam
+        d.arc([x - 4, cy - 26, x + 4, cy - 14], 90, 270, fill=BLACK, width=2)
+        d.arc([x - 4, cy - 16, x + 4, cy - 4], 270, 90, fill=BLACK, width=2)
+
+
+def _icon_car(d, cx, cy):                       # 外出／開車
+    d.polygon([(cx - 22, cy - 8), (cx - 12, cy - 26), (cx + 14, cy - 26), (cx + 26, cy - 8)], fill=BLACK)
+    d.polygon([(cx - 15, cy - 9), (cx - 9, cy - 21), (cx - 1, cy - 21), (cx - 1, cy - 9)], fill=WHITE)
+    d.polygon([(cx + 3, cy - 9), (cx + 3, cy - 21), (cx + 12, cy - 21), (cx + 19, cy - 9)], fill=WHITE)
+    d.rounded_rectangle([cx - 38, cy - 10, cx + 38, cy + 14], radius=7, fill=BLACK)
+    for x in (cx - 22, cx + 22):
+        d.ellipse([x - 11, cy + 2, x + 11, cy + 24], fill=BLACK)
+        d.ellipse([x - 5, cy + 8, x + 5, cy + 18], fill=WHITE)
+    d.rectangle([cx + 30, cy - 4, cx + 36, cy + 1], fill=WHITE)   # headlight
+
+
+def _icon_helmet(d, cx, cy):                    # 案場／工地
+    d.pieslice([cx - 32, cy - 30, cx + 32, cy + 30], 180, 360, fill=BLACK)
+    d.rounded_rectangle([cx - 42, cy - 2, cx + 42, cy + 8], radius=4, fill=BLACK)
+    d.rectangle([cx - 4, cy - 30, cx + 4, cy - 2], fill=WHITE)   # ridge
+    d.rectangle([cx - 2, cy - 28, cx + 2, cy - 4], fill=BLACK)
+
+
+def _icon_bolt(d, cx, cy):                      # 電力／儲能
+    d.polygon([(cx + 8, cy - 38), (cx - 22, cy + 6), (cx - 2, cy + 6), (cx - 10, cy + 38),
+               (cx + 22, cy - 8), (cx + 2, cy - 8)], fill=BLACK)
+
+
+def _icon_battery(d, cx, cy):                   # 充電／儲能系統
+    d.rounded_rectangle([cx - 20, cy - 30, cx + 20, cy + 34], radius=5, outline=BLACK, width=5)
+    d.rectangle([cx - 9, cy - 37, cx + 9, cy - 30], fill=BLACK)
+    for i in range(3):
+        y = cy + 22 - i * 16
+        d.rectangle([cx - 12, y - 6, cx + 12, y + 6], fill=BLACK)
+
+
+def _icon_doc(d, cx, cy):                       # 文件／專心寫東西
+    d.polygon([(cx - 24, cy - 34), (cx + 12, cy - 34), (cx + 26, cy - 20), (cx + 26, cy + 34), (cx - 24, cy + 34)],
+              outline=BLACK, width=4)
+    d.polygon([(cx + 12, cy - 34), (cx + 12, cy - 20), (cx + 26, cy - 20)], fill=BLACK)
+    for i in range(4):
+        y = cy - 12 + i * 11
+        d.line([cx - 14, y, cx + (16 if i < 3 else 2), y], fill=BLACK, width=3)
+
+
+def _icon_cross(d, cx, cy):                     # 看醫生／請假
+    d.rounded_rectangle([cx - 32, cy - 32, cx + 32, cy + 32], radius=10, fill=BLACK)
+    d.rectangle([cx - 7, cy - 22, cx + 7, cy + 22], fill=WHITE)
+    d.rectangle([cx - 22, cy - 7, cx + 22, cy + 7], fill=WHITE)
+
+
+def _icon_check(d, cx, cy):                     # 完成／OK
+    d.ellipse([cx - 34, cy - 34, cx + 34, cy + 34], fill=BLACK)
+    d.line([(cx - 18, cy + 1), (cx - 5, cy + 15), (cx + 20, cy - 13)], fill=WHITE, width=9, joint="curve")
+
+
+def _icon_bang(d, cx, cy):                      # 注意／請勿打擾
+    d.polygon([(cx, cy - 36), (cx + 38, cy + 30), (cx - 38, cy + 30)], fill=BLACK)
+    d.rectangle([cx - 4, cy - 14, cx + 4, cy + 12], fill=WHITE)
+    d.rectangle([cx - 4, cy + 17, cx + 4, cy + 24], fill=WHITE)
+
+
+def _icon_heart(d, cx, cy):
+    d.ellipse([cx - 34, cy - 28, cx + 2, cy + 6], fill=BLACK)
+    d.ellipse([cx - 2, cy - 28, cx + 34, cy + 6], fill=BLACK)
+    d.polygon([(cx - 33, cy - 6), (cx + 33, cy - 6), (cx, cy + 32)], fill=BLACK)
+
+
+ICONS = {   # key: (中文名, 畫法)；左格中心 (48, 64)
+    "meeting": ("開會", lambda d: _icon_people(d, 48, 66)),
+    "phone": ("電話", lambda d: _icon_phone(d, 46, 66)),
+    "clock": ("時鐘", lambda d: _icon_clock(d, 48, 64)),
+    "cup": ("咖啡", lambda d: _icon_cup(d, 46, 64)),
+    "bowl": ("用餐", lambda d: _icon_bowl(d, 46, 62)),
+    "house": ("在家", lambda d: _icon_house(d, 48, 64)),
+    "car": ("外出", lambda d: _icon_car(d, 48, 62)),
+    "plane": ("飛機", lambda d: _icon_plane(d, 50, 58, 1.0)),
+    "helmet": ("案場", lambda d: _icon_helmet(d, 48, 70)),
+    "bolt": ("閃電", lambda d: _icon_bolt(d, 48, 64)),
+    "battery": ("電池", lambda d: _icon_battery(d, 48, 64)),
+    "doc": ("文件", lambda d: _icon_doc(d, 48, 64)),
+    "cross": ("醫療", lambda d: _icon_cross(d, 48, 64)),
+    "moon": ("月亮", lambda d: _icon_moon(d, 48, 62)),
+    "check": ("完成", lambda d: _icon_check(d, 48, 64)),
+    "bang": ("注意", lambda d: _icon_bang(d, 48, 62)),
+    "heart": ("愛心", lambda d: _icon_heart(d, 48, 64)),
+}
+ICON_BOX = (6, 8, 92, H - 8)                   # 自訂上傳圖示的可用範圍（86×112）
+
+
 def _status_frame(d, title, icon):
     d.rectangle([0, 0, W - 1, H - 1], outline=BLACK, width=2)
     d.line([98, 10, 98, H - 10], fill=BLACK, width=1)
@@ -511,29 +645,84 @@ def missing_glyphs(text, bold=False):
     return sorted(out)
 
 
-def page_card(now, info):
-    """字卡：照打的字排，自動選最大字級；可選置中／靠左、第一行放大、粗體、外框、反白."""
-    img, d = canvas()
-    inv = bool(info.get("invert"))
-    ink, paper = (WHITE, BLACK) if inv else (BLACK, WHITE)
-    if inv:
-        d.rectangle([0, 0, W - 1, H - 1], fill=BLACK)
-    if info.get("border"):
-        d.rectangle([2, 2, W - 3, H - 3], outline=ink, width=2)
-    box = (12, 16, W - 12, H - 10) if info.get("border") else (8, 16, W - 8, H - 6)
-    rows, gap = card_layout(d, info.get("text") or "", bool(info.get("title")), bool(info.get("bold")), box)
-    if not rows:
-        d.text((W / 2, H / 2), "（還沒有輸入文字）", font=cjk(14), fill=ink, anchor="mm")
-        return img
+def decode_icon(b64):
+    """Uploaded icon (base64 PNG/JPEG) -> grayscale image that fits the left panel, or None."""
+    import base64
+    import io
+    try:
+        im = Image.open(io.BytesIO(base64.b64decode(b64.split(",")[-1], validate=True)))
+        im.load()
+    except Exception:
+        return None
+    if im.mode in ("RGBA", "LA", "P"):
+        im = im.convert("RGBA")
+        bg = Image.new("RGBA", im.size, (255, 255, 255, 255))
+        im = Image.alpha_composite(bg, im)
+    im = im.convert("L")
+    bw, bh = ICON_BOX[2] - ICON_BOX[0], ICON_BOX[3] - ICON_BOX[1]
+    im.thumbnail((bw, bh), Image.LANCZOS)
+    return im
+
+
+def icon_bitmap(gray, dither=False, threshold=128):
+    """Grayscale -> 1-bit: plain threshold for logos/line art, Floyd–Steinberg for photos."""
+    from PIL import ImageOps
+    g = ImageOps.autocontrast(gray, cutoff=1)
+    if dither:
+        return g.convert("1")
+    return g.point(lambda v: 255 if v >= threshold else 0).convert("1", dither=Image.Dither.NONE)
+
+
+def _draw_card_icon(img, d, info):
+    key = info.get("icon") or ""
+    if key == "upload" and info.get("icon_png"):
+        g = decode_icon(info["icon_png"])
+        if g is None:
+            return
+        bmp = icon_bitmap(g, bool(info.get("icon_dither")))
+        x0, y0, x1, y1 = ICON_BOX
+        img.paste(bmp, (int(x0 + (x1 - x0 - bmp.width) / 2), int(y0 + (y1 - y0 - bmp.height) / 2)))
+    elif key in ICONS:
+        ICONS[key][1](d)
+
+
+def _draw_rows(d, rows, gap, box, left, ink=BLACK):
     total = sum(r[2] for r in rows) + gap * (len(rows) - 1)
     y = box[1] + (box[3] - box[1] - total) / 2
-    left = info.get("align") == "left"
     for t, f, h in rows:
         top = d.textbbox((0, 0), "國Ag", font=f)[1]
         w = d.textlength(t, font=f)
         x = box[0] if left else (box[0] + box[2] - w) / 2
         d.text((x, y - top), t, font=f, fill=ink)
         y += h + gap
+
+
+def page_card(now, info):
+    """字卡。layout=sign：跟其他狀態牌一樣（左邊圖示、右邊文字）；layout=free：整面都是字。
+    選項：置中／靠左、第一行放大、粗體、外框（free）、黑底白字。"""
+    img, d = canvas()
+    text = info.get("text") or ""
+    left = info.get("align") == "left"
+    if info.get("layout") == "sign":
+        d.rectangle([0, 0, W - 1, H - 1], outline=BLACK, width=2)
+        d.line([98, 10, 98, H - 10], fill=BLACK, width=1)
+        _draw_card_icon(img, d, info)
+        box = (106, 16, W - 8, H - 6)                     # top 16: keep clear of the Wi-Fi icon
+        rows, gap = card_layout(d, text, info.get("title", True), bool(info.get("bold")), box)
+        if not rows:
+            d.text(((box[0] + box[2]) / 2, H / 2), "（還沒有輸入文字）", font=cjk(12), fill=BLACK, anchor="mm")
+        _draw_rows(d, rows, gap, box, left)
+    else:
+        if info.get("border"):
+            d.rectangle([2, 2, W - 3, H - 3], outline=BLACK, width=2)
+        box = (12, 16, W - 12, H - 10) if info.get("border") else (8, 16, W - 8, H - 6)
+        rows, gap = card_layout(d, text, bool(info.get("title")), bool(info.get("bold")), box)
+        if not rows:
+            d.text((W / 2, H / 2), "（還沒有輸入文字）", font=cjk(14), fill=BLACK, anchor="mm")
+        _draw_rows(d, rows, gap, box, left)
+    if info.get("invert"):
+        from PIL import ImageOps
+        img = ImageOps.invert(img.convert("L")).convert("1")
     return img
 
 

@@ -764,3 +764,39 @@ def test_card_validation_and_live_preview(tmp_path):
         b2 = _board(tmp_path); b2.sign_path = str(tmp_path / "sign.json"); assert b2._load_sign()["kind"] == "custom"
     finally:
         srv.shutdown()
+
+
+def _png_b64(size=(300, 200)):
+    import base64, io
+    from PIL import Image, ImageDraw
+    im = Image.new("RGBA", size, (0, 0, 0, 0))                   # transparent background -> white
+    ImageDraw.Draw(im).ellipse([20, 20, size[0] - 20, size[1] - 20], fill=(200, 30, 30, 255))
+    buf = io.BytesIO(); im.save(buf, "PNG")
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+
+
+@pytest.mark.parametrize("icon", ["", "meeting", "helmet", "upload"])
+def test_card_sign_layout_with_icons(icon):
+    from einkboard.web import validate_sign
+    arg = {"kind": "custom", "layout": "sign", "text": "開會中\n10:30 結束", "icon": icon, "icon_png": _png_b64()}
+    clean = validate_sign(arg)
+    if icon == "upload":
+        g = pages.decode_icon(clean["icon_png"])
+        assert g.width <= 86 and g.height <= 112                # stored shrunk, never the original
+    else:
+        assert "icon_png" not in clean
+    img = pages.page_status(dt.datetime(2026, 11, 2, 9, 0), clean)
+    left = img.crop((4, 6, 94, 122)).convert("L")
+    dark = sum(1 for v in left.getdata() if v == 0)
+    assert (dark > 300) == (icon != "")                        # something drawn in the icon panel iff an icon was picked
+
+
+def test_card_icon_validation():
+    from einkboard.web import Invalid, validate_sign
+    base = {"kind": "custom", "layout": "sign", "text": "x"}
+    for bad, msg in [({"icon": "nope"}, "不認得"), ({"icon": "upload"}, "選一張"),
+                     ({"icon": "upload", "icon_png": "data:image/png;base64,AAAA"}, "讀不出來"),
+                     ({"icon": "upload", "icon_png": "A" * 60000}, "太大")]:
+        with pytest.raises(Invalid, match=msg):
+            validate_sign(dict(base, **bad))
+    assert validate_sign(dict(base, layout="weird"))["layout"] == "free"

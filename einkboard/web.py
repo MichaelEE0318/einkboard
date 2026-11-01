@@ -126,9 +126,36 @@ def validate_card(a):
     bad = missing_glyphs(text, bool(a.get("bold")))
     if bad:
         raise Invalid("電子紙的字型沒有這些字（表情符號之類）：" + " ".join(bad))
-    return {"kind": "custom", "text": "\n".join(lines), "align": "left" if a.get("align") == "left" else "center",
-            "title": bool(a.get("title")), "bold": bool(a.get("bold")),
-            "border": bool(a.get("border")), "invert": bool(a.get("invert"))}
+    out = {"kind": "custom", "text": "\n".join(lines), "align": "left" if a.get("align") == "left" else "center",
+           "title": bool(a.get("title")), "bold": bool(a.get("bold")),
+           "border": bool(a.get("border")), "invert": bool(a.get("invert")),
+           "layout": "sign" if a.get("layout") == "sign" else "free"}
+    if out["layout"] == "sign":
+        out.update(validate_icon(a))
+    return out
+
+
+def validate_icon(a):
+    """圖示：內建（ICONS 的 key）、自己上傳（icon_png，存成縮好的灰階 PNG）或不要圖示."""
+    import base64
+    from .pages import ICONS, decode_icon
+    key = a.get("icon") or ""
+    if key in ICONS or key == "":
+        return {"icon": key}
+    if key != "upload":
+        raise Invalid("不認得的圖示")
+    raw = str(a.get("icon_png") or "")
+    if not raw:
+        raise Invalid("請先選一張圖片")
+    if len(raw) > 48 * 1024:
+        raise Invalid("圖片太大（請用小一點的圖，網頁會自動縮小）")
+    g = decode_icon(raw)
+    if g is None:
+        raise Invalid("圖片讀不出來（請用 PNG 或 JPG）")
+    buf = io.BytesIO()
+    g.save(buf, "PNG", optimize=True)          # store the shrunk grayscale only, never the original file
+    return {"icon": "upload", "icon_png": base64.b64encode(buf.getvalue()).decode("ascii"),
+            "icon_dither": bool(a.get("icon_dither"))}
 
 
 def validate_sign(a):
@@ -209,6 +236,20 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, b.status())
         if self.path == "/api/config":
             return self._send(200, {"config": editable(b.cfg), "page_names": PAGE_NAMES})
+        m = re.fullmatch(r"/icon/([a-z]+)\.png", self.path)
+        if m:                                       # built-in icon thumbnails for the picker
+            from PIL import Image, ImageDraw
+            from . import pages
+            if m.group(1) not in pages.ICONS:
+                return self._send(404, {"error": "no such icon"})
+            img = Image.new("1", (98, 128), 255)
+            pages.ICONS[m.group(1)][1](ImageDraw.Draw(img))
+            buf = io.BytesIO()
+            img.convert("L").save(buf, "PNG")
+            return self._send(200, buf.getvalue(), "image/png")
+        if self.path == "/api/icons":
+            from . import pages
+            return self._send(200, {k: v[0] for k, v in pages.ICONS.items()})
         if self.path.startswith("/preview.png"):
             img = b.last_img
             if img is None:
@@ -314,6 +355,10 @@ legend{font-weight:700;font-size:14px;margin-bottom:6px;padding:0}
 .order div{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:8px;padding:6px 10px}
 .order span{flex:1}
 .order button{padding:2px 8px}
+.icons{display:grid;grid-template-columns:repeat(auto-fill,minmax(58px,1fr));gap:6px}
+.icons button{padding:4px;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:12px;border-radius:8px}
+.icons img{width:42px;height:55px;image-rendering:pixelated;background:#fff;border-radius:3px}
+.icons button.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
 .toast{position:sticky;bottom:12px;align-self:center;background:var(--ink);color:var(--card);padding:8px 14px;border-radius:8px;font-size:14px}
 .mono{font-family:var(--mono)}
 </style></head><body><main>
@@ -341,6 +386,20 @@ legend{font-weight:700;font-size:14px;margin-bottom:6px;padding:0}
     <label id="fTime">回來時間<input id="sTime" type="time"></label>
     <label id="fNote">留言（選填）<input id="sNote" type="text" maxlength="24"></label>
     <div id="fCard" style="display:flex;flex-direction:column;gap:10px">
+      <div class="row" role="radiogroup" aria-label="版型">
+        <label class="check"><input type="radio" name="cLayout" value="sign" checked> 狀態牌樣式（左邊圖示）</label>
+        <label class="check"><input type="radio" name="cLayout" value="free"> 整面文字</label>
+      </div>
+      <div id="fIcon">
+        <div class="sub" style="margin-bottom:6px">圖示</div>
+        <div class="icons" id="iconGrid" role="radiogroup" aria-label="圖示"></div>
+        <div class="row" style="margin-top:8px">
+          <button type="button" onclick="$('cFile').click()">上傳自己的圖…</button>
+          <input type="file" id="cFile" accept="image/*" hidden onchange="uploadIcon(this)">
+          <label class="check" id="fDither" hidden><input type="checkbox" id="cDither"> 照片模式（點陣抖色）</label>
+          <span class="sub">黑白分明的 logo、圖示效果最好</span>
+        </div>
+      </div>
       <label>字卡內容（換行就是換行，最多 5 行 80 字，字會自動放到最大）
         <textarea id="cText" rows="4" maxlength="100" placeholder="會議中&#10;請勿打擾"></textarea></label>
       <div class="sub" id="cCount" style="margin-top:-6px">0 / 80 字．0 / 5 行</div>
@@ -349,7 +408,7 @@ legend{font-weight:700;font-size:14px;margin-bottom:6px;padding:0}
         <label class="check"><input type="radio" name="cAlign" value="left"> 靠左</label>
         <label class="check"><input type="checkbox" id="cTitle"> 第一行放大</label>
         <label class="check"><input type="checkbox" id="cBold"> 粗體</label>
-        <label class="check"><input type="checkbox" id="cBorder"> 外框</label>
+        <label class="check" id="fBorder"><input type="checkbox" id="cBorder"> 外框</label>
         <label class="check"><input type="checkbox" id="cInvert"> 黑底白字</label>
       </div>
     </div>
@@ -424,9 +483,24 @@ function pickKind(k){KIND=k;$("signKinds").innerHTML=Object.entries(SIGNS).map((
   if(k==="off"&&!$("sTime").value)$("sTime").value="09:00";if(k==="trip"&&!$("sNote").value)$("sNote").value=SIGNS.trip.note;
   if(k==="custom")setTimeout(()=>$("cText").focus(),0);
   livePreview()}
+let ICONS={}, ICON="meeting", ICON_PNG="";
+function renderIcons(){
+  const items=[["","不要"],...Object.entries(ICONS)];if(ICON_PNG)items.push(["upload","我的圖"]);
+  $("iconGrid").innerHTML=items.map(([k,n])=>`<button type="button" role="radio" aria-checked="${k===ICON}" class="${k===ICON?"on":""}" onclick="pickIcon('${k}')">`+
+    (k==="upload"?`<img src="${ICON_PNG}" alt="">`:k?`<img src="/icon/${k}.png" alt="">`:`<span style="height:55px;display:flex;align-items:center">—</span>`)+`<span>${n}</span></button>`).join("");
+  $("fDither").hidden=ICON!=="upload"}
+function pickIcon(k){ICON=k;renderIcons();livePreview()}
+function uploadIcon(inp){const f=inp.files[0];if(!f)return;const img=new Image();
+  img.onload=()=>{const s=Math.min(86/img.width,112/img.height,1),w=Math.max(1,Math.round(img.width*s)),h=Math.max(1,Math.round(img.height*s));
+    const c=document.createElement("canvas");c.width=w;c.height=h;const g=c.getContext("2d");g.fillStyle="#fff";g.fillRect(0,0,w,h);g.drawImage(img,0,0,w,h);
+    ICON_PNG=c.toDataURL("image/png");URL.revokeObjectURL(img.src);inp.value="";pickIcon("upload")};
+  img.onerror=()=>toast("這個檔案讀不出來");img.src=URL.createObjectURL(f)}
+function cardLayout(){const sign=document.querySelector('input[name=cLayout]:checked').value==="sign";$("fIcon").hidden=!sign;$("fBorder").hidden=sign}
 function signArg(){
-  if(KIND==="custom")return{kind:"custom",text:$("cText").value,align:document.querySelector('input[name=cAlign]:checked').value,
-    title:$("cTitle").checked,bold:$("cBold").checked,border:$("cBorder").checked,invert:$("cInvert").checked};
+  if(KIND==="custom"){const layout=document.querySelector('input[name=cLayout]:checked').value;
+    return{kind:"custom",layout,text:$("cText").value,align:document.querySelector('input[name=cAlign]:checked').value,
+    title:$("cTitle").checked,bold:$("cBold").checked,border:$("cBorder").checked,invert:$("cInvert").checked,
+    icon:ICON,icon_png:ICON==="upload"?ICON_PNG:"",icon_dither:$("cDither").checked}}
   return{kind:KIND,place:$("sPlace").value,back:KIND==="trip"?$("sDate").value:$("sTime").value,note:$("sNote").value}}
 let prevTimer=null,prevSeq=0,prevURL=null;
 function livePreview(){clearTimeout(prevTimer);prevTimer=setTimeout(async()=>{
@@ -487,10 +561,17 @@ async function saveCfg(ev){
 $("signForm").addEventListener("input",livePreview);$("signForm").addEventListener("change",livePreview);
 let signLoaded=false;
 function adoptSign(sg){if(signLoaded)return;signLoaded=true;if(!sg)return;   // open the page while a sign is up -> edit that sign
-  if(sg.kind==="custom"){$("cText").value=sg.text||"";document.querySelector(`input[name=cAlign][value=${sg.align==="left"?"left":"center"}]`).checked=true;
+  if(sg.kind==="custom"){$("cText").value=sg.text||"";
+    document.querySelector(`input[name=cLayout][value=${sg.layout==="sign"?"sign":"free"}]`).checked=true;cardLayout();
+    if(sg.icon==="upload"&&sg.icon_png){ICON_PNG="data:image/png;base64,"+sg.icon_png;$("cDither").checked=!!sg.icon_dither}
+    ICON=sg.icon||"";renderIcons();document.querySelector(`input[name=cAlign][value=${sg.align==="left"?"left":"center"}]`).checked=true;
     $("cTitle").checked=!!sg.title;$("cBold").checked=!!sg.bold;$("cBorder").checked=!!sg.border;$("cInvert").checked=!!sg.invert}
   else{$("sPlace").value=sg.place||"";$("sNote").value=sg.note||"";if(sg.kind==="trip")$("sDate").value=sg.back||"";else $("sTime").value=sg.back||""}
   pickKind(sg.kind)}
+document.querySelectorAll('input[name=cLayout]').forEach(r=>r.addEventListener("change",()=>{cardLayout();
+  $("cTitle").checked=document.querySelector('input[name=cLayout]:checked').value==="sign"}));
+$("cTitle").checked=true;cardLayout();
+api("/api/icons").then(j=>{ICONS=j;renderIcons()});
 pickKind("away");load().then(poll);setInterval(poll,10000);
 </script></body></html>
 """
