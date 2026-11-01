@@ -321,7 +321,7 @@ def page_market(now, mk, stale=False):
 
 
 # ------------------------------------------------------------------ status signs (manual: 出差中 / 下班了 / 暫離)
-STATUS_KINDS = {"trip": "出差中", "off": "下班了", "away": "暫離"}
+STATUS_KINDS = {"trip": "出差中", "off": "下班了", "away": "暫離", "custom": "字卡"}
 
 
 def _icon_plane(d, cx, cy, s=1.0):
@@ -441,8 +441,106 @@ def page_away(now, info):
     return img
 
 
+# ------------------------------------------------------------------ 字卡（完全手填）
+CARD_MAX_LINES, CARD_MAX_CHARS = 5, 80
+
+
+def _wrap(d, line, font, width):
+    """Break one line to fit `width` (CJK: any character; Latin: prefer spaces)."""
+    out, cur = [], ""
+    for ch in line:
+        if d.textlength(cur + ch, font=font) <= width or not cur:
+            cur += ch
+            continue
+        cut = cur.rfind(" ")
+        if cut > 0 and cur[cut + 1:].isascii() and ch != " ":
+            out.append(cur[:cut]); cur = cur[cut + 1:] + ch
+        else:
+            out.append(cur.rstrip()); cur = ch.lstrip()
+    out.append(cur)
+    return out
+
+
+def card_layout(d, text, title=False, bold=False, box=(8, 16, W - 8, H - 6)):
+    """Largest font that fits the box. Lines are kept as typed when possible; only wrap when the
+    unwrapped text would end up smaller than 18 px. Returns [(text, font, height)], gap."""
+    lines = [ln.strip() for ln in text.split("\n")]
+    while lines and not lines[-1]:
+        lines.pop()
+    while lines and not lines[0]:
+        lines.pop(0)
+    if not lines:
+        return [], 0
+    bw, bh = box[2] - box[0], box[3] - box[1]
+
+    def build(size, wrap):
+        rows = []
+        for i, ln in enumerate(lines):
+            big = title and i == 0 and len(lines) > 1
+            f = cjk(min(96, round(size * 1.45)) if big else size, bold or big)
+            parts = _wrap(d, ln, f, bw) if wrap else [ln]
+            for part in parts:
+                b = d.textbbox((0, 0), "國Ag", font=f)
+                rows.append((part, f, b[3] - b[1]))
+        gap = max(2, size // 5)
+        total = sum(r[2] for r in rows) + gap * (len(rows) - 1)
+        widest = max(d.textlength(r[0], font=r[1]) for r in rows)
+        return rows, gap, total <= bh and widest <= bw
+
+    for wrap in (False, True):
+        for size in range(72, 9, -1):
+            rows, gap, ok = build(size, wrap)
+            if ok and (wrap or size >= 18):
+                return rows, gap
+    return build(10, True)[:2]
+
+
+def missing_glyphs(text, bold=False):
+    """Characters the panel font can't draw (emoji etc.) — they would show as an empty box."""
+    def shape(f, ch):
+        im = Image.new("1", (32, 32), 0)
+        ImageDraw.Draw(im).text((4, 2), ch, font=f, fill=1)
+        return im.tobytes()
+
+    out = []
+    for f in {cjk(20, bold), cjk(20, True)}:
+        tofu = shape(f, "\uFFFF")
+        for ch in set(text):
+            if not ch.isspace() and ch not in out and shape(f, ch) == tofu:
+                out.append(ch)
+    return sorted(out)
+
+
+def page_card(now, info):
+    """字卡：照打的字排，自動選最大字級；可選置中／靠左、第一行放大、粗體、外框、反白."""
+    img, d = canvas()
+    inv = bool(info.get("invert"))
+    ink, paper = (WHITE, BLACK) if inv else (BLACK, WHITE)
+    if inv:
+        d.rectangle([0, 0, W - 1, H - 1], fill=BLACK)
+    if info.get("border"):
+        d.rectangle([2, 2, W - 3, H - 3], outline=ink, width=2)
+    box = (12, 16, W - 12, H - 10) if info.get("border") else (8, 16, W - 8, H - 6)
+    rows, gap = card_layout(d, info.get("text") or "", bool(info.get("title")), bool(info.get("bold")), box)
+    if not rows:
+        d.text((W / 2, H / 2), "（還沒有輸入文字）", font=cjk(14), fill=ink, anchor="mm")
+        return img
+    total = sum(r[2] for r in rows) + gap * (len(rows) - 1)
+    y = box[1] + (box[3] - box[1] - total) / 2
+    left = info.get("align") == "left"
+    for t, f, h in rows:
+        top = d.textbbox((0, 0), "國Ag", font=f)[1]
+        w = d.textlength(t, font=f)
+        x = box[0] if left else (box[0] + box[2] - w) / 2
+        d.text((x, y - top), t, font=f, fill=ink)
+        y += h + gap
+    return img
+
+
 def page_status(now, info, wx=None):
     kind = info.get("kind")
+    if kind == "custom":
+        return page_card(now, info)
     if kind == "trip":
         return page_trip(now, info)
     if kind == "off":

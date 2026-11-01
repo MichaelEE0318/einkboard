@@ -112,12 +112,33 @@ def validate(new):
     }
 
 
+def validate_card(a):
+    """字卡：text（最多 5 行、80 字）＋ align / title / bold / border / invert."""
+    from .pages import CARD_MAX_CHARS, CARD_MAX_LINES, missing_glyphs
+    text = str(a.get("text") or "").replace("\r\n", "\n").replace("\r", "\n").strip("\n")
+    lines = [ln.strip() for ln in text.split("\n")]
+    if not "".join(lines):
+        raise Invalid("字卡還沒有輸入文字")
+    if len(lines) > CARD_MAX_LINES:
+        raise Invalid(f"字卡最多 {CARD_MAX_LINES} 行")
+    if sum(len(ln) for ln in lines) > CARD_MAX_CHARS:
+        raise Invalid(f"字卡最多 {CARD_MAX_CHARS} 個字")
+    bad = missing_glyphs(text, bool(a.get("bold")))
+    if bad:
+        raise Invalid("電子紙的字型沒有這些字（表情符號之類）：" + " ".join(bad))
+    return {"kind": "custom", "text": "\n".join(lines), "align": "left" if a.get("align") == "left" else "center",
+            "title": bool(a.get("title")), "bold": bool(a.get("bold")),
+            "border": bool(a.get("border")), "invert": bool(a.get("invert"))}
+
+
 def validate_sign(a):
-    """狀態牌欄位：kind + place / back / note."""
+    """狀態牌欄位：kind + place / back / note；字卡見 validate_card."""
     from .pages import STATUS_KINDS
     if not isinstance(a, dict) or a.get("kind") not in STATUS_KINDS:
-        raise Invalid("請選擇狀態：出差中、下班了或暫離")
+        raise Invalid("請選擇狀態：出差中、下班了、暫離或字卡")
     kind = a["kind"]
+    if kind == "custom":
+        return validate_card(a)
     place, note = str(a.get("place") or "").strip(), str(a.get("note") or "").strip()
     back = str(a.get("back") or "").strip()
     if len(place) > 16:
@@ -208,6 +229,16 @@ class Handler(BaseHTTPRequestHandler):
                 arg = validate_sign(data.get("arg")) if action == "sign" else data.get("arg")
                 b.command(action, arg)
                 return self._send(200, {"ok": True})
+            if self.path == "/api/preview":
+                # render a sign without showing it: the page calls this while you type
+                from . import pages
+                clean = validate_sign(data.get("arg"))
+                img = pages.page_status(b.now(), clean, b.weather.data)
+                net = getattr(b, "net", None) or {}
+                img = pages.draw_wifi(img, net.get("bars", 3), net.get("connected", True), net.get("internet", True))
+                buf = io.BytesIO()
+                img.convert("L").save(buf, "PNG")
+                return self._send(200, buf.getvalue(), "image/png")
             if self.path == "/api/config":
                 clean = validate(data.get("config") or {})
                 save(self.config_path, clean)
@@ -271,6 +302,8 @@ button:disabled{opacity:.5;cursor:default}
 .ok{background:var(--ok)}.warn{background:var(--warn)}.bad{background:var(--bad)}
 .err{color:var(--bad);font-size:13px}
 label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted)}
+textarea{font:16px/1.5 var(--f);color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;width:100%;resize:vertical}
+textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 input[type=text],input[type=number],input[type=time],input[type=date]{font:15px var(--f);color:var(--ink);background:var(--bg);
 border:1px solid var(--line);border-radius:8px;padding:8px 10px;width:100%}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
@@ -306,7 +339,24 @@ legend{font-weight:700;font-size:14px;margin-bottom:6px;padding:0}
     <label id="fPlace">地點（例如 越南 河內）<input id="sPlace" type="text" maxlength="16"></label>
     <label id="fDate">回程日期<input id="sDate" type="date"></label>
     <label id="fTime">回來時間<input id="sTime" type="time"></label>
-    <label>留言（選填）<input id="sNote" type="text" maxlength="24"></label>
+    <label id="fNote">留言（選填）<input id="sNote" type="text" maxlength="24"></label>
+    <div id="fCard" style="display:flex;flex-direction:column;gap:10px">
+      <label>字卡內容（換行就是換行，最多 5 行 80 字，字會自動放到最大）
+        <textarea id="cText" rows="4" maxlength="100" placeholder="會議中&#10;請勿打擾"></textarea></label>
+      <div class="sub" id="cCount" style="margin-top:-6px">0 / 80 字．0 / 5 行</div>
+      <div class="row" role="radiogroup" aria-label="對齊">
+        <label class="check"><input type="radio" name="cAlign" value="center" checked> 置中</label>
+        <label class="check"><input type="radio" name="cAlign" value="left"> 靠左</label>
+        <label class="check"><input type="checkbox" id="cTitle"> 第一行放大</label>
+        <label class="check"><input type="checkbox" id="cBold"> 粗體</label>
+        <label class="check"><input type="checkbox" id="cBorder"> 外框</label>
+        <label class="check"><input type="checkbox" id="cInvert"> 黑底白字</label>
+      </div>
+    </div>
+    <div>
+      <div class="sub" style="margin-bottom:6px">預覽（還沒送到看板）<span id="prevNote"></span></div>
+      <div class="screen"><img id="signPrev" alt="狀態牌預覽"></div>
+    </div>
     <div class="row"><button class="primary" id="signBtn">顯示狀態牌</button>
       <button type="button" onclick="act('rotate')">回到輪播</button><span class="sub" id="signNow"></span></div>
     <div class="err" id="signErr" role="alert"></div>
@@ -365,19 +415,37 @@ function toast(t){const e=$("toast");e.textContent=t;e.hidden=false;clearTimeout
 async function api(p,body){const r=await fetch(p,body?{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}:{});
   const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||("HTTP "+r.status));return j}
 async function act(a,arg){try{await api("/api/action",{action:a,arg});toast({next:"換到下一頁",prev:"換到上一頁",pause:"已切換輪播",full:"全刷中…",refetch:"重新抓資料中",goto:"切換頁面"}[a]);setTimeout(poll,1500);setTimeout(poll,5000)}catch(e){toast(e.message)}}
-const SIGNS={trip:{name:"出差中",note:"急事請 LINE 或手機聯絡",time:""},off:{name:"下班了",note:"",time:"09:00"},away:{name:"暫離",note:"",time:""}};
+const SIGNS={trip:{name:"出差中",note:"急事請 LINE 或手機聯絡",time:""},off:{name:"下班了",note:"",time:"09:00"},away:{name:"暫離",note:"",time:""},custom:{name:"字卡"}};
 let KIND="away";
 function pickKind(k){KIND=k;$("signKinds").innerHTML=Object.entries(SIGNS).map(([key,v])=>`<button type="button" role="radio" aria-checked="${key===k}" class="chip ${key===k?"on":""}" onclick="pickKind('${key}')">${v.name}</button>`).join("");
-  $("fPlace").hidden=k!=="trip";$("fDate").hidden=k!=="trip";$("fTime").hidden=k==="trip";
+  $("fPlace").hidden=k!=="trip";$("fDate").hidden=k!=="trip";$("fTime").hidden=k==="trip"||k==="custom";
+  $("fNote").hidden=k==="custom";$("fCard").hidden=k!=="custom";
   $("fTime").firstChild.textContent=k==="off"?"明天幾點回來":"預計幾點回來（選填）";
-  if(k==="off"&&!$("sTime").value)$("sTime").value="09:00";if(k==="trip"&&!$("sNote").value)$("sNote").value=SIGNS.trip.note}
+  if(k==="off"&&!$("sTime").value)$("sTime").value="09:00";if(k==="trip"&&!$("sNote").value)$("sNote").value=SIGNS.trip.note;
+  if(k==="custom")setTimeout(()=>$("cText").focus(),0);
+  livePreview()}
+function signArg(){
+  if(KIND==="custom")return{kind:"custom",text:$("cText").value,align:document.querySelector('input[name=cAlign]:checked').value,
+    title:$("cTitle").checked,bold:$("cBold").checked,border:$("cBorder").checked,invert:$("cInvert").checked};
+  return{kind:KIND,place:$("sPlace").value,back:KIND==="trip"?$("sDate").value:$("sTime").value,note:$("sNote").value}}
+let prevTimer=null,prevSeq=0,prevURL=null;
+function livePreview(){clearTimeout(prevTimer);prevTimer=setTimeout(async()=>{
+  const seq=++prevSeq;
+  if(KIND==="custom"){const ls=$("cText").value.split("\n");const n=ls.reduce((a,l)=>a+l.trim().length,0);
+    $("cCount").textContent=`${n} / 80 字．${ls.length} / 5 行`;$("cCount").style.color=(n>80||ls.length>5)?"var(--bad)":""}
+  try{const r=await fetch("/api/preview",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({arg:signArg()})});
+    if(seq!==prevSeq)return;
+    if(!r.ok){const j=await r.json().catch(()=>({}));$("prevNote").textContent="　· "+(j.error||"無法預覽");$("signPrev").style.opacity=.35;return}
+    const url=URL.createObjectURL(await r.blob());if(prevURL)URL.revokeObjectURL(prevURL);prevURL=url;
+    $("signPrev").src=url;$("signPrev").style.opacity=1;$("prevNote").textContent=""}catch(e){}},180)}
 async function showSign(ev){ev.preventDefault();$("signErr").textContent="";
-  const arg={kind:KIND,place:$("sPlace").value,back:KIND==="trip"?$("sDate").value:$("sTime").value,note:$("sNote").value};
+  const arg=signArg();
   try{await api("/api/action",{action:"sign",arg});toast(`顯示「${SIGNS[KIND].name}」`);setTimeout(poll,1500);setTimeout(poll,6000)}catch(e){$("signErr").textContent=e.message}}
 function ago(t){if(!t)return"尚未成功";const s=Math.round(Date.now()/1000-t);return s<60?s+" 秒前":s<3600?Math.round(s/60)+" 分鐘前":Math.round(s/3600)+" 小時前"}
 async function poll(){
   try{const s=await api("/api/status");
     $("where").textContent=`http://${s.ip||location.hostname}:${s.port}　·　${s.now}　·　已運作 ${Math.floor(s.uptime/3600)} 小時 ${Math.floor(s.uptime%3600/60)} 分`;
+    adoptSign(s.sign);
     $("signNow").textContent=s.sign?`目前顯示：${SIGNS[s.sign.kind].name}`:"目前在輪播";
     $("pauseBtn").textContent=s.paused?"繼續輪播":"暫停輪播";$("pauseBtn").classList.toggle("on",s.paused);
     $("gotoRow").innerHTML=s.pages.map(p=>`<button class="chip ${p===s.page?"on":""}" onclick="act('goto','${p}')">${NAMES[p]||p}</button>`).join("");
@@ -416,6 +484,13 @@ async function saveCfg(ev){
     let n=0;const t=setInterval(async()=>{n++;try{await api("/api/status");if(n>3){clearInterval(t);$("saveBtn").disabled=false;toast("已套用新設定");load();poll()}}catch(e){}if(n>40){clearInterval(t);$("saveBtn").disabled=false}},1000)}
   catch(e){$("formErr").textContent=e.message;$("saveBtn").disabled=false}
 }
+$("signForm").addEventListener("input",livePreview);$("signForm").addEventListener("change",livePreview);
+let signLoaded=false;
+function adoptSign(sg){if(signLoaded)return;signLoaded=true;if(!sg)return;   // open the page while a sign is up -> edit that sign
+  if(sg.kind==="custom"){$("cText").value=sg.text||"";document.querySelector(`input[name=cAlign][value=${sg.align==="left"?"left":"center"}]`).checked=true;
+    $("cTitle").checked=!!sg.title;$("cBold").checked=!!sg.bold;$("cBorder").checked=!!sg.border;$("cInvert").checked=!!sg.invert}
+  else{$("sPlace").value=sg.place||"";$("sNote").value=sg.note||"";if(sg.kind==="trip")$("sDate").value=sg.back||"";else $("sTime").value=sg.back||""}
+  pickKind(sg.kind)}
 pickKind("away");load().then(poll);setInterval(poll,10000);
 </script></body></html>
 """

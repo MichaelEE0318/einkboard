@@ -707,3 +707,60 @@ def test_weekend_redraws_once_per_day(tmp_path):
     names = [b.tick() for _ in times]
     assert set(names) == {"night"}
     assert b.display.fulls == 4          # Fri 18:00, Sat 00:01, Sun 00:01, Mon 08:00 (new day) — nothing in between
+
+
+# ------------------------------------------------------------------ 字卡（完全手填）
+@pytest.mark.parametrize("text,opts", [
+    ("會議中\n請勿打擾", {"title": True}), ("午休", {}), ("今天在新竹案場\n下午 3 點後回辦公室\n急事請打手機", {"align": "left"}),
+    ("歡迎參觀\nHEXA 光儲系統", {"invert": True, "border": True, "bold": True, "title": True}),
+    ("這是一段很長很長的文字用來測試自動換行的功能會不會正常運作而且字不會跑出畫面外面去" * 1, {}),
+    ("A\nB\nC\nD\nE", {"border": True}),
+])
+def test_card_fits_the_panel(text, opts):
+    from PIL import ImageDraw
+    img = pages.page_status(dt.datetime(2026, 11, 2, 9, 0), dict(opts, kind="custom", text=text))
+    # every typed character is drawn and the text block stays inside the box
+    d = ImageDraw.Draw(img)
+    rows, _ = pages.card_layout(d, text, opts.get("title", False), opts.get("bold", False))
+    assert "".join(r[0] for r in rows).replace(" ", "") == text.replace("\n", "").replace(" ", "")
+    assert all(d.textlength(t, font=f) <= pages.W - 16 for t, f, _ in rows)
+
+
+def test_card_prefers_big_unwrapped_text():
+    from PIL import ImageDraw
+    img, d = pages.canvas()
+    rows, _ = pages.card_layout(d, "午休")
+    assert len(rows) == 1 and rows[0][1].size >= 60
+    rows, _ = pages.card_layout(d, "會議中\n請勿打擾", title=True)
+    assert rows[0][1].size > rows[1][1].size
+
+
+def test_card_validation_and_live_preview(tmp_path):
+    from einkboard.web import start_web
+    b = _board(tmp_path)
+    b.cfg["cache_dir"] = str(tmp_path); b.sign_path = str(tmp_path / "sign.json")
+    srv = start_web(b, 0, host="127.0.0.1", config_path=str(tmp_path / "config.yaml"))
+    port = srv.server_address[1]
+    try:
+        b.tick()
+        shown = b.display.count if hasattr(b.display, "count") else None
+        for bad, msg in [({"text": ""}, "沒有輸入"), ({"text": "1\n2\n3\n4\n5\n6"}, "5 行"),
+                         ({"text": "字" * 81}, "80"), ({"text": "Coffee ☕"}, "☕")]:
+            code, j = _http(port, "/api/preview", {"arg": dict(bad, kind="custom")})
+            assert code == 400 and msg in j["error"], (bad, j)
+        code, png = _http(port, "/api/preview", {"arg": {"kind": "custom", "text": "會議中\n請勿打擾", "title": True}})
+        assert code == 200 and png[:4] == b"\x89PNG"
+        code, png = _http(port, "/api/preview", {"arg": {"kind": "away", "back": "14:00"}})   # other signs preview too
+        assert code == 200
+        b._drain()
+        assert b.sign is None and b.current == "clock"                      # preview never touches the panel
+        if shown is not None:
+            assert b.display.count == shown
+        code, _ = _http(port, "/api/action", {"action": "sign",
+                        "arg": {"kind": "custom", "text": " 會議中 \r\n請勿打擾\n\n", "title": True, "align": "weird"}})
+        assert code == 200
+        b._drain(); assert b.tick() == "sign:custom"
+        assert b.sign["text"] == "會議中\n請勿打擾" and b.sign["align"] == "center"
+        b2 = _board(tmp_path); b2.sign_path = str(tmp_path / "sign.json"); assert b2._load_sign()["kind"] == "custom"
+    finally:
+        srv.shutdown()
