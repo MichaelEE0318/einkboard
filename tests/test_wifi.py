@@ -205,7 +205,7 @@ def test_hotspot_stays_while_someone_is_using_the_page(tmp_path):
 
 
 def test_qr_text_escapes_special_characters():
-    assert wifi.wifi_qr_text('a;b', 'p:w"') == 'WIFI:T:WPA;S:a\;b;P:p\\:w\\";;'
+    assert wifi.wifi_qr_text('a;b', 'p:w"') == r'WIFI:T:WPA;S:a\;b;P:p\:w\";;'
 
 
 def test_nmcli_field_split():

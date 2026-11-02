@@ -243,7 +243,7 @@ class Portal:
     def __init__(self, networks, ap, error=""):
         self.networks, self.ap, self.error = networks, ap, error
         self.submissions = queue.Queue()
-        self.last_seen = 0.0
+        self.last_seen = None                # 還沒人開過設定頁（不能用 0：開機沒多久 monotonic 也很小）
         self.srv = None
         self.port = None
 
@@ -307,7 +307,7 @@ class Portal:
 
     def active(self, within=180):
         """最近有人在用設定頁嗎（有的話先不要關熱點去重試）"""
-        return time.monotonic() - self.last_seen < within
+        return self.last_seen is not None and time.monotonic() - self.last_seen < within
 
     # ---- HTML
     CSS = """*{box-sizing:border-box}body{margin:0;font:16px/1.6 -apple-system,"PingFang TC","Noto Sans TC",sans-serif;
