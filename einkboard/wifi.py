@@ -61,8 +61,18 @@ class NM:
 
     def _run(self, args, timeout=60):
         env = dict(os.environ, LC_ALL="C")
-        p = subprocess.run(["nmcli"] + args, capture_output=True, text=True, timeout=timeout, env=env)
-        return p.returncode, p.stdout, p.stderr
+        t0 = time.monotonic()
+        try:
+            p = subprocess.run(["nmcli"] + args, capture_output=True, text=True, timeout=timeout, env=env)
+            rc, out, err = p.returncode, p.stdout, p.stderr
+        except subprocess.TimeoutExpired:
+            rc, out, err = 124, "", f"timeout after {timeout}s"
+        dt = time.monotonic() - t0
+        if rc != 0 or dt > 5:
+            shown = ["***" if i and (args[i - 1] == "password" or args[i - 1].endswith(".psk")) else x
+                     for i, x in enumerate(args)]                      # 不把密碼寫進 log
+            log.info("nmcli %s -> %s（%.1fs）%s", " ".join(shown), rc, dt, err.strip()[:160])
+        return rc, out, err
 
     def connected(self):
         """(連上了嗎, 目前的 SSID)"""
@@ -70,7 +80,8 @@ class NM:
         for line in out.splitlines():
             dev, typ, state, con = (_split(line) + ["", "", "", ""])[:4]
             if dev == self.iface:
-                return state == "connected" and con != AP_CON, con
+                # NetworkManager 新版會寫 "connected (externally)" 之類，用 startswith
+                return state.startswith("connected") and con != AP_CON, con
         return False, ""
 
     def saved(self):
@@ -156,10 +167,12 @@ def boot_check(nm, wait=150, auth_limit=3, first_try=20, poll=5, clock=time.mono
                stop=lambda: False):
     """開機後決定要不要開熱點。回傳 (結果, 細節)：
     ("ok", ssid) / ("no_saved", "") / ("not_found", "") / ("auth", ssid)"""
+    t_start = clock()
     ok, ssid = nm.connected()
     if ok:
         return "ok", ssid
     saved = nm.saved()
+    log.info("Wi-Fi 還沒連上，存過的：%s", ", ".join(s for _, s in saved) or "（沒有）")
     if not saved:
         return "no_saved", ""
     t0, fails, next_try = clock(), {}, clock() + first_try     # 先讓 NetworkManager 自己連 first_try 秒
@@ -169,6 +182,8 @@ def boot_check(nm, wait=150, auth_limit=3, first_try=20, poll=5, clock=time.mono
             return "ok", ssid
         if clock() >= next_try:
             visible = {n["ssid"] for n in nm.scan()}
+            log.info("Wi-Fi 掃描（%.0fs）：看到 %d 個，存過的有 %s", clock() - t_start, len(visible),
+                     ", ".join(s for _, s in saved if s in visible) or "0 個")
             for name, s in saved:
                 if s not in visible:
                     continue

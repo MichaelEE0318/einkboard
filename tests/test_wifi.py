@@ -223,3 +223,21 @@ def test_setup_pages_render_and_qr_decodes():
     from PIL import Image
     arr = np.pad(np.array(img.convert("L").resize((888, 384), Image.NEAREST)), 40, constant_values=255)
     assert cv2.QRCodeDetector().detectAndDecode(arr)[0] == "WIFI:T:WPA;S:EinkBoard-3F2A;P:k7mq2xpe;;"
+
+
+def test_nmcli_log_never_contains_password(monkeypatch, caplog):
+    import subprocess as sp
+    monkeypatch.setattr(sp, "run", lambda *a, **k: sp.CompletedProcess(a[0], 4, "", "Secrets were required"))
+    caplog.set_level("INFO")
+    nm = wifi.NM()
+    nm._run(["--wait", "40", "device", "wifi", "connect", "Home", "ifname", "wlan0", "password", "hunter2pw"])
+    nm._run(["connection", "modify", "Home", "wifi-sec.psk", "hunter2pw"])
+    assert "hunter2pw" not in caplog.text and "***" in caplog.text
+
+
+def test_connected_state_variants(monkeypatch):
+    nm = wifi.NM()
+    for state, want in [("connected", True), ("connected (externally)", True), ("connecting (configuring)", False),
+                        ("disconnected", False)]:
+        monkeypatch.setattr(nm, "_run", lambda *a, s=state: (0, f"wlan0:wifi:{s}:iPhone\n", ""))
+        assert nm.connected() == (want, "iPhone")

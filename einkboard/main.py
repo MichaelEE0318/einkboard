@@ -292,9 +292,10 @@ class Board:
             log.info("沒有 NetworkManager，略過 Wi-Fi 開箱設定")
             return None
         nm = wifi.NM()
+        t0 = time.monotonic()
         result, detail = wifi.boot_check(nm, wait=w["boot_wait_seconds"], auth_limit=w["auth_fail_limit"],
                                          stop=lambda: bool(stop))
-        log.info("Wi-Fi 開機檢查：%s %s", result, detail)
+        log.info("Wi-Fi 開機檢查：%s %s（%.0f 秒）", result, detail, time.monotonic() - t0)
         if result == "ok":
             return None
 
@@ -311,7 +312,9 @@ class Board:
         stop = []
         signal.signal(signal.SIGTERM, lambda *_: stop.append(1))
         port = self.cfg["web"]["port"] if self.cfg["web"]["enabled"] else None
+        t0 = time.monotonic()
         self.display.show(pages.page_boot("", None), force_full=True)
+        log.info("開機畫面完成（%.1f 秒）", time.monotonic() - t0)
         try:
             new_ssid = self.wifi_setup(stop)
         except Exception:
