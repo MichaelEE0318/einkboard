@@ -779,6 +779,69 @@ def page_night(now, wx=None):
     return img
 
 
+# ------------------------------------------------------------------ Wi-Fi 開箱設定
+def draw_qr(img, text, x, y, size):
+    """QR Code，盡量用整數倍放大（1-bit 才會銳利）。沒有 qrcode 套件就畫提示框。"""
+    d = ImageDraw.Draw(img)
+    try:
+        import qrcode
+        q = qrcode.QRCode(border=0, error_correction=qrcode.constants.ERROR_CORRECT_L)
+        q.add_data(text)
+        q.make(fit=True)
+        m = q.get_matrix()
+    except Exception:
+        d.rectangle([x, y, x + size, y + size], outline=BLACK, width=2)
+        d.text((x + size / 2, y + size / 2), "QR", font=num(20), fill=BLACK, anchor="mm")
+        return
+    n = len(m)
+    k = max(1, size // n)
+    ox, oy = x + (size - n * k) // 2, y + (size - n * k) // 2
+    for r, row in enumerate(m):
+        for c, v in enumerate(row):
+            if v:
+                d.rectangle([ox + c * k, oy + r * k, ox + c * k + k - 1, oy + r * k + k - 1], fill=BLACK)
+
+
+def page_setup(ap, message="", url="http://10.42.0.1"):
+    """熱點模式：左邊 QR（掃了就連上熱點），右邊步驟。"""
+    from .wifi import wifi_qr_text
+    img, d = canvas()
+    draw_qr(img, wifi_qr_text(ap["ssid"], ap["password"]), 6, 6, 116)
+    x = 128
+    msg = message or "請設定 Wi-Fi"
+    size = next((z for z in (14, 13, 12, 11) if d.textlength(msg, font=cjk(z, True)) <= W - x - 4), 11)
+    d.text((x, 4 + (14 - size)), fit(d, msg, cjk(size, True), W - x - 4), font=cjk(size, True), fill=BLACK)
+    d.line([x, 24, W - 6, 24], fill=BLACK)
+    steps = ["① 手機相機掃左邊 QR", "② 連上後會自動跳出設定頁", "③ 選 Wi-Fi、輸入密碼"]
+    for i, t in enumerate(steps):
+        d.text((x, 28 + i * 17), t, font=cjk(12), fill=BLACK)
+    d.text((x, 82), "沒跳出來就開", font=cjk(10), fill=BLACK)
+    d.text((x + 62, 82), url.replace("http://", ""), font=num(10, False), fill=BLACK)
+    for y, label, val in ((96, "熱點", ap["ssid"]), (111, "密碼", ap["password"])):
+        d.text((x, y), label, font=cjk(11), fill=BLACK)
+        d.text((x + 28, y + 1), val, font=num(11), fill=BLACK)
+    return img
+
+
+def page_connecting(ssid):
+    img, d = canvas()
+    d.text((W / 2, 46), "正在連線…", font=cjk(22, True), fill=BLACK, anchor="mm")
+    d.text((W / 2, 80), fit(d, ssid, cjk(16), W - 20), font=cjk(16), fill=BLACK, anchor="mm")
+    return img
+
+
+def page_connected(ssid, ip="", port=None):
+    img, d = canvas()
+    d.text((8, 8), "✓ Wi-Fi 已連線", font=cjk(20, True), fill=BLACK)
+    d.text((8, 40), fit(d, ssid, cjk(14), W - 16), font=cjk(14), fill=BLACK)
+    if ip and port:
+        url = f"http://{ip}:{port}"
+        draw_qr(img, url, W - 74, 54, 68)
+        d.text((8, 72), "設定網頁（同一個 Wi-Fi 下打開）", font=cjk(11), fill=BLACK)
+        d.text((8, 90), url, font=num(13), fill=BLACK)
+    return img
+
+
 def page_boot(ip="", port=None):
     img, d = canvas()
     d.text((8, 14), "電子紙看板 啟動中", font=cjk(20, True), fill=BLACK)

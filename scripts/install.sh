@@ -30,6 +30,9 @@ chown -R "$RUN_USER":"$RUN_USER" "$APP_DIR"
 
 mkdir -p /var/lib/einkboard && chown "$RUN_USER":"$RUN_USER" /var/lib/einkboard
 
+echo "==> Wi-Fi 開箱設定（熱點＋設定頁）"
+"$APP_DIR/scripts/setup_wifi_portal.sh" || echo "   （略過：沒有 NetworkManager）"
+
 echo "==> systemd 服務"
 sed -e "s#@APP_DIR@#$APP_DIR#g" -e "s#@VENV@#$VENV#g" -e "s#@USER@#$RUN_USER#g" \
     "$APP_DIR/scripts/einkboard.service" > /etc/systemd/system/einkboard.service

@@ -282,20 +282,57 @@ class Board:
             except Exception:
                 log.exception("command %s failed", action)
 
+    def wifi_setup(self, stop):
+        """開機時：找不到存過的 Wi-Fi 或密碼錯 -> 開熱點等手機設定。回傳新連上的 SSID（沒經過設定就回 None）。"""
+        w = self.cfg["wifi"]
+        if not w.get("setup") or self.cfg["simulate"]:
+            return None
+        from . import wifi
+        if not wifi.NM.available():
+            log.info("沒有 NetworkManager，略過 Wi-Fi 開箱設定")
+            return None
+        nm = wifi.NM()
+        result, detail = wifi.boot_check(nm, wait=w["boot_wait_seconds"], auth_limit=w["auth_fail_limit"],
+                                         stop=lambda: bool(stop))
+        log.info("Wi-Fi 開機檢查：%s %s", result, detail)
+        if result == "ok":
+            return None
+
+        def show(kind, **k):
+            img = {"setup": lambda: pages.page_setup(k["ap"], k["message"], k["url"]),
+                   "connecting": lambda: pages.page_connecting(k["ssid"])}.get(
+                kind, lambda: pages.page_connecting(k.get("message", "")))()
+            self.display.show(img, force_full=True)
+
+        return wifi.run_setup(nm, show, result, detail, cache_dir=self.cfg["cache_dir"],
+                              retry_minutes=w["retry_minutes"], stop=lambda: bool(stop))
+
     def run(self):
+        stop = []
+        signal.signal(signal.SIGTERM, lambda *_: stop.append(1))
+        port = self.cfg["web"]["port"] if self.cfg["web"]["enabled"] else None
+        self.display.show(pages.page_boot("", None), force_full=True)
+        try:
+            new_ssid = self.wifi_setup(stop)
+        except Exception:
+            log.exception("Wi-Fi 設定流程出錯，照常啟動")
+            new_ssid = None
+        if stop:
+            self.display.sleep()
+            return 0
         self.ip = lan_ip()
         if self.cfg["web"]["enabled"]:
             from .web import start_web
-            start_web(self, self.cfg["web"]["port"])
-        self.display.show(pages.page_boot(self.ip, self.cfg["web"]["port"] if self.cfg["web"]["enabled"] else None),
-                          force_full=True)
+            start_web(self, port)
+        if new_ssid:                                   # 剛設定好：顯示「已連線」＋設定網頁 QR，多停一下讓人看
+            self.display.show(pages.page_connected(new_ssid, self.ip, port), force_full=True)
+        else:
+            self.display.show(pages.page_boot(self.ip, port), force_full=True)
         self.last_page = "boot"                       # boot -> first page counts as a page change (full refresh)
         for s in self.sources().values():
             if s:
                 s.start()
-        time.sleep(8)                                 # give the first fetches a moment
-        stop = []
-        signal.signal(signal.SIGTERM, lambda *_: stop.append(1))
+        time.sleep(30 if new_ssid else 8)             # give the first fetches a moment
         while not stop and not self.restart_requested:
             try:
                 self._drain()

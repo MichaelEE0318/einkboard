@@ -1,12 +1,14 @@
 [Unit]
 Description=E-paper desk board (clock / weather / Taipower / TW stocks)
-After=network-online.target
-Wants=network-online.target
+# 不等 network-online：沒有 Wi-Fi 時程式自己會開熱點讓手機設定
+After=NetworkManager.service
 
 [Service]
 Type=simple
 User=@USER@
 SupplementaryGroups=gpio spi
+# Wi-Fi 設定頁要用 port 80（手機才會自動跳出設定頁）
+AmbientCapabilities=CAP_NET_BIND_SERVICE
 WorkingDirectory=@APP_DIR@
 Environment=EINKBOARD_CONFIG=@APP_DIR@/config.yaml
 ExecStart=@VENV@/bin/python -m einkboard.main
