@@ -5,3 +5,4 @@ out/
 config.yaml
 *.png
 !pet_moods.png
+!hardware/**/*.png

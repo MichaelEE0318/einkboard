@@ -1,0 +1,23 @@
+電子紙桌上看板 外殼設計 © 2026 Michael (MichaelEE0318)
+
+本目錄（hardware/case/）內的所有檔案，包括 OpenSCAD 原始檔、STL 模型、圖片與說明文件，
+採用創用 CC 姓名標示-非商業性 4.0 國際授權條款（CC BY-NC 4.0）。
+
+This work (all files in hardware/case/) is licensed under the
+Creative Commons Attribution-NonCommercial 4.0 International License (CC BY-NC 4.0).
+
+授權條款摘要（中文）：https://creativecommons.org/licenses/by-nc/4.0/deed.zh-hant
+完整法律條款（Legal Code）：https://creativecommons.org/licenses/by-nc/4.0/legalcode
+
+You are free to:
+  Share — copy and redistribute the material in any medium or format
+  Adapt — remix, transform, and build upon the material
+Under the following terms:
+  Attribution — You must give appropriate credit, provide a link to the license, and indicate
+                if changes were made.
+  NonCommercial — You may not use the material for commercial purposes.
+  No additional restrictions — You may not apply legal terms or technological measures that
+                legally restrict others from doing anything the license permits.
+
+本授權僅涵蓋 hardware/case/ 目錄；專案中的程式碼不在此授權範圍內。
+For commercial licensing, contact the author via https://github.com/MichaelEE0318.
