@@ -255,6 +255,7 @@ class Board:
             return False                              # redraw happens once data arrives (next minute)
         elif action == "restart":
             self.restart_requested = True
+            self._mark_quick_restart()
             return False
         return True
 
@@ -267,7 +268,7 @@ class Board:
                           "error": getattr(s, "error", None)}
         return {"page": self.current, "pages": self.pages, "paused": bool(self.paused), "ip": self.ip,
                 "sign": self.sign, "net": getattr(self, "net", None),
-                "port": self.cfg["web"]["port"], "uptime": int(time.time() - self.started),
+                "port": self.cfg["web"]["port"], "uptime": int(time.time() - self.started), "boot": self.started,
                 "night": is_night(now, self.cfg["night"]), "now": now.strftime("%H:%M"), "sources": src}
 
     def _drain(self):
@@ -308,15 +309,46 @@ class Board:
         return wifi.run_setup(nm, show, result, detail, cache_dir=self.cfg["cache_dir"],
                               retry_minutes=w["retry_minutes"], stop=lambda: bool(stop))
 
+    # ------------------------------------------------------------------ restart after saving settings
+    def _flag_path(self):
+        return os.path.join(self.cfg["cache_dir"], "quick_restart")
+
+    def _mark_quick_restart(self):
+        """存設定重啟：下次啟動不畫開機畫面，直接回到內容（少閃兩次）。"""
+        try:
+            os.makedirs(self.cfg["cache_dir"], exist_ok=True)
+            with open(self._flag_path(), "w") as f:
+                f.write(str(time.time()))
+        except OSError as e:
+            log.warning("quick_restart：%s", e)
+
+    def _take_quick_restart(self):
+        try:
+            with open(self._flag_path()) as f:
+                t = float(f.read().strip() or 0)
+            os.remove(self._flag_path())
+            return time.time() - t < 120
+        except (OSError, ValueError):
+            return False
+
+    def _wait_for_data(self, timeout):
+        """等第一批資料（最多 timeout 秒），有了就不用乾等。"""
+        t0 = time.monotonic()
+        while time.monotonic() - t0 < timeout:
+            if all(s.data is not None for s in self.sources().values() if s):
+                return
+            time.sleep(0.5)
+
     def run(self):
         stop = []
         signal.signal(signal.SIGTERM, lambda *_: stop.append(1))
         port = self.cfg["web"]["port"] if self.cfg["web"]["enabled"] else None
-        t0 = time.monotonic()
-        self.display.show(pages.page_boot("", None), force_full=True)
-        log.info("開機畫面完成（%.1f 秒）", time.monotonic() - t0)
+        quick = self._take_quick_restart()
+        online = bool(self.wifi_reader()[0] and lan_ip())        # Wi-Fi 已經連著：不用先畫「沒有 IP」的畫面
+        if not online and not quick:
+            self.display.show(pages.page_boot("", None), force_full=True)
         try:
-            new_ssid = self.wifi_setup(stop)
+            new_ssid = None if online else self.wifi_setup(stop)
         except Exception:
             log.exception("Wi-Fi 設定流程出錯，照常啟動")
             new_ssid = None
@@ -329,16 +361,21 @@ class Board:
             start_web(self, port)
         if new_ssid:                                   # 剛設定好：顯示「已連線」＋設定網頁 QR，多停一下讓人看
             self.display.show(pages.page_connected(new_ssid, self.ip, port), force_full=True)
-        else:
+        elif not quick:
             self.display.show(pages.page_boot(self.ip, port), force_full=True)
         self.last_page = "boot"                       # boot -> first page counts as a page change (full refresh)
         for s in self.sources().values():
             if s:
                 s.start()
-        time.sleep(30 if new_ssid else 8)             # give the first fetches a moment
+        if new_ssid:
+            time.sleep(30)
+        else:
+            self._wait_for_data(15 if quick else 8)   # give the first fetches a moment
         while not stop and not self.restart_requested:
             try:
                 self._drain()
+                if self.restart_requested:            # 存設定 -> 馬上重啟（以前會先畫一頁、再睡到下一分鐘才重啟）
+                    break
                 self.tick()
             except Exception:
                 log.exception("tick failed")

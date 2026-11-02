@@ -235,7 +235,11 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/status":
             return self._send(200, b.status())
         if self.path == "/api/config":
-            return self._send(200, {"config": editable(b.cfg), "page_names": PAGE_NAMES})
+            try:                                    # 讀檔案：顯示的永遠是「存下來的」設定，不是記憶體裡的舊值
+                cfg = config.load(self.config_path)
+            except Exception:
+                cfg = b.cfg
+            return self._send(200, {"config": editable(cfg), "page_names": PAGE_NAMES})
         m = re.fullmatch(r"/icon/([a-z]+)\.png", self.path)
         if m:                                       # built-in icon thumbnails for the picker
             from PIL import Image, ImageDraw
@@ -285,7 +289,7 @@ class Handler(BaseHTTPRequestHandler):
                 save(self.config_path, clean)
                 if data.get("restart", True):
                     threading.Timer(0.5, b.command, args=("restart",)).start()
-                return self._send(200, {"ok": True, "restarting": bool(data.get("restart", True))})
+                return self._send(200, {"ok": True, "restarting": bool(data.get("restart", True)), "boot": b.started})
         except Invalid as e:
             return self._send(400, {"error": str(e)})
         except Exception as e:  # never kill the web thread
@@ -461,7 +465,7 @@ legend{font-weight:700;font-size:14px;margin-bottom:6px;padding:0}
       <label class="check"><input id="rot" type="checkbox"> 畫面上下顛倒</label>
       <label class="check"><input id="inv" type="checkbox"> 黑白顛倒</label>
     </fieldset>
-    <div class="row"><button class="primary" id="saveBtn">儲存並重新啟動</button><span class="sub">重啟約 15 秒，會全刷一次</span></div>
+    <div class="row"><button class="primary" id="saveBtn">儲存並重新啟動</button><span class="sub">重啟約 10 秒</span></div>
     <div class="err" id="formErr" role="alert"></div>
   </form>
 </section>
@@ -554,8 +558,14 @@ async function saveCfg(ev){
       page:$("nPageOff").checked?"off":"night",weekend_all_day:$("nWeekend").checked,off_back:$("nOffBack").value||"09:00",off_note:$("nOffNote").value},
     eink:{page_change_full:$("pcf").checked,full_refresh_minutes:+$("frm").value,rotate180:$("rot").checked,invert:$("inv").checked}};
   $("saveBtn").disabled=true;
-  try{await api("/api/config",{config:cfg,restart:true});toast("已儲存，看板重新啟動中…");
-    let n=0;const t=setInterval(async()=>{n++;try{await api("/api/status");if(n>3){clearInterval(t);$("saveBtn").disabled=false;toast("已套用新設定");load();poll()}}catch(e){}if(n>40){clearInterval(t);$("saveBtn").disabled=false}},1000)}
+  try{const r=await api("/api/config",{config:cfg,restart:true});
+    // 等到「新的」程式起來（boot 時間不同）才重新讀設定 —— 舊程式還沒結束前讀到的是舊值
+    const t0=Date.now();$("saveBtn").textContent="重新啟動中…";
+    const t=setInterval(async()=>{const s=Math.round((Date.now()-t0)/1000);$("saveBtn").textContent=`重新啟動中… ${s} 秒`;
+      try{const st=await api("/api/status");if(st.boot!==r.boot){clearInterval(t);done();toast("已套用新設定");load();poll()}}catch(e){}
+      if(s>180){clearInterval(t);done();$("formErr").textContent="看板還沒重新啟動完成，請稍後重新整理頁面"}},1000);
+    function done(){$("saveBtn").disabled=false;$("saveBtn").textContent="儲存並重新啟動"}
+    toast("已儲存，看板重新啟動中…")}
   catch(e){$("formErr").textContent=e.message;$("saveBtn").disabled=false}
 }
 $("signForm").addEventListener("input",livePreview);$("signForm").addEventListener("change",livePreview);

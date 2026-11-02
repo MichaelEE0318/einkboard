@@ -1,4 +1,5 @@
 import datetime as dt
+import time
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -548,7 +549,8 @@ def test_web_config_validates_and_saves(tmp_path):
     port = srv.server_address[1]
     try:
         cfg = _http(port, "/api/config")[1]["config"]
-        assert cfg == editable(b.cfg)
+        assert cfg == editable(config.load(str(path)))      # 網頁顯示的是檔案裡的設定
+        assert cfg["market"]["stocks"] == ["2330"]
         bad = dict(cfg, market={"stocks": ["2330", "0050", "t00", "o00", "2308"], "fx": ["USD"]})
         code, err = _http(port, "/api/config", {"config": bad, "restart": False})
         assert code == 400 and "4 檔" in err["error"]
@@ -800,3 +802,90 @@ def test_card_icon_validation():
         with pytest.raises(Invalid, match=msg):
             validate_sign(dict(base, **bad))
     assert validate_sign(dict(base, layout="weird"))["layout"] == "free"
+
+
+# ------------------------------------------------------------------ 存設定重啟／開機畫面
+class RecDisplay:
+    def __init__(self):
+        self.shown = []
+
+    def show(self, img, force_full=False):
+        self.shown.append((img, force_full))
+
+    def sleep(self):
+        pass
+
+
+def _run_board(tmp_path, monkeypatch, online, quick=False, after_start=None):
+    import einkboard.main as m
+    b = _board(tmp_path)
+    b.cfg["cache_dir"] = str(tmp_path); b.cfg["web"]["enabled"] = False
+    b.display = RecDisplay()
+    b.wifi_reader = lambda: (online, 50.0 if online else 0.0)
+    monkeypatch.setattr(m, "lan_ip", lambda: "172.20.10.9" if online else "")
+    monkeypatch.setattr(m.time, "sleep", lambda s: None)
+    for s in b.sources().values():
+        if s:
+            s.start = lambda: None
+            s.data = {}
+    if quick:
+        b._mark_quick_restart()
+    boots = []
+    real_boot = m.pages.page_boot
+    monkeypatch.setattr(m.pages, "page_boot", lambda ip="", port=None: boots.append(ip) or real_boot(ip, port))
+    b.restart_requested = True                               # 不進主迴圈，只看開機流程
+    code = b.run()
+    return b, boots, code
+
+
+def test_power_on_with_wifi_shows_one_boot_screen(tmp_path, monkeypatch):
+    b, boots, code = _run_board(tmp_path, monkeypatch, online=True)
+    assert boots == ["172.20.10.9"]                          # 直接畫有 IP 的，不先畫沒 IP 的
+    assert len(b.display.shown) == 1 and code == 75
+
+
+def test_power_on_without_wifi_shows_connecting_then_ip(tmp_path, monkeypatch):
+    b, boots, code = _run_board(tmp_path, monkeypatch, online=False)
+    assert boots == ["", ""]                                 # 沒 Wi-Fi 時要先告訴人「啟動中」
+
+
+def test_restart_after_saving_skips_boot_screen(tmp_path, monkeypatch):
+    b, boots, code = _run_board(tmp_path, monkeypatch, online=True, quick=True)
+    assert boots == [] and b.display.shown == []             # 不畫開機畫面，下一頁直接全刷
+    assert not (tmp_path / "quick_restart").exists()
+
+
+def test_stale_quick_restart_flag_is_ignored(tmp_path, monkeypatch):
+    (tmp_path / "quick_restart").write_text(str(time.time() - 600))
+    b, boots, code = _run_board(tmp_path, monkeypatch, online=True)
+    assert boots == ["172.20.10.9"]
+
+
+def test_restart_command_exits_without_drawing_or_sleeping(tmp_path):
+    """存設定後舊程式要馬上結束 —— 以前會先畫一頁再睡到下一分鐘，網頁讀到的是舊設定."""
+    b = _board(tmp_path)
+    b.cfg["cache_dir"] = str(tmp_path)
+    b.display = RecDisplay()
+    b.command("restart")
+    t0 = time.time()
+    b._drain()
+    assert b.restart_requested and (tmp_path / "quick_restart").exists()
+    assert time.time() - t0 < 1 and b.display.shown == []
+
+
+def test_settings_page_reads_saved_file_not_memory(tmp_path):
+    from einkboard.web import start_web
+    b = _board(tmp_path)
+    path = tmp_path / "config.yaml"
+    srv = start_web(b, 0, host="127.0.0.1", config_path=str(path))
+    port = srv.server_address[1]
+    try:
+        code, j = _http(port, "/api/config")
+        cfg = j["config"]; cfg["rotate_minutes"] = 7
+        code, r = _http(port, "/api/config", {"config": cfg, "restart": False})
+        assert code == 200 and r["boot"] == b.started
+        assert b.cfg["rotate_minutes"] != 7                  # 舊程式記憶體還是舊值…
+        assert _http(port, "/api/config")[1]["config"]["rotate_minutes"] == 7   # …但網頁顯示存下來的
+        assert _http(port, "/api/status")[1]["boot"] == b.started
+    finally:
+        srv.shutdown()
