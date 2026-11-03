@@ -119,7 +119,7 @@ def page_clock(now, wx, loc_name="", stale=False):
         d.text((x0, 50), "天氣資料載入中…", font=cjk(13), fill=BLACK)
         return img
     icon(d, wx["icon"], x0 + 22, 28, 24)
-    text_r(d, W - 22, 4, f"{fmt(wx['temp'])}°", num(32))      # right-aligned, clear of the Wi-Fi icon
+    text_r(d, W - 28, 4, f"{fmt(wx['temp'])}°", num(32))      # right-aligned, clear of the status corner
     d.text((x0, 56), fit(d, f"{loc_name} {wx['desc']}", cjk(14, True), W - x0 - 4), font=cjk(14, True), fill=BLACK)
     d.text((x0, 76), f"最高 {fmt(wx['hi'])}°  最低 {fmt(wx['lo'])}°", font=cjk(12), fill=BLACK)
     d.text((x0, 93), f"體感 {fmt(wx['feels'])}°  濕度 {fmt(wx['rh'])}%", font=cjk(12), fill=BLACK)
@@ -130,8 +130,6 @@ def page_clock(now, wx, loc_name="", stale=False):
     d.rectangle([bx0, 113, bx1, 122], outline=BLACK)
     d.rectangle([bx0, 113, bx0 + (bx1 - bx0) * min(rain, 100) / 100, 122], fill=BLACK)
     text_r(d, W - 4, 109, f"{fmt(rain)}%", num(12))
-    if stale:
-        stale_tag(d, W - 52, 2)
     return img
 
 
@@ -143,7 +141,7 @@ def page_power(now, pw, stale=False):
         d.text((6, 50), "台電資料載入中…", font=cjk(14), fill=BLACK)
         return img
     pub = pw.get("publish") or ""
-    text_r(d, W - 22, 4, (pub[-5:] if len(pub) >= 5 else pub) + " 更新", cjk(10))
+    text_r(d, W - 28, 4, (pub[-5:] if len(pub) >= 5 else pub) + " 更新", cjk(10))
 
     # left: today's peak reserve forecast + light
     zh, note = LIGHT.get(pw["light"], ("--", ""))
@@ -181,8 +179,6 @@ def page_power(now, pw, stale=False):
         d.polygon([(tx - 3, 97), (tx + 3, 97), (tx, 101)], fill=BLACK)
     if pw.get("yday_rate") is not None:
         d.text((x0, 115), f"昨日尖峰備轉 {fmt(pw['yday_rate'], 1)}%", font=cjk(9), fill=BLACK)
-    if stale:
-        stale_tag(d, 112, 3)
     return img
 
 
@@ -258,10 +254,10 @@ def page_market(now, mk, stale=False):
         f = cjk(11, True)
         w = d.textlength(status, font=f)
         if mk.get("open"):
-            d.rounded_rectangle([W - w - 31, 3, W - 21, 18], radius=7, fill=BLACK)
-            d.text((W - w - 26, 2), status, font=f, fill=WHITE)
+            d.rounded_rectangle([W - w - 38, 3, W - 28, 18], radius=7, fill=BLACK)
+            d.text((W - w - 33, 2), status, font=f, fill=WHITE)
         else:
-            text_r(d, W - 23, 3, status, f)
+            text_r(d, W - 30, 3, status, f)
     d.line([6, 21, W - 6, 21], fill=BLACK)
 
     rows = quotes[:4]
@@ -315,8 +311,6 @@ def page_market(now, mk, stale=False):
             d.text((x, 109), val, font=num(14), fill=BLACK)
             if i:
                 d.line([x - 5, 98, x - 5, 124], fill=BLACK)
-    if stale:
-        stale_tag(d, 96, 3)
     return img
 
 
@@ -738,7 +732,7 @@ def page_status(now, info, wx=None):
 
 
 # ------------------------------------------------------------------ Wi-Fi indicator (every page, top-right)
-def draw_wifi(img, bars, connected=True, internet=True):
+def draw_wifi(img, bars, connected=True, internet=True, stale=False):
     """14x12 px Wi-Fi fan in the top-right corner.
     bars 1-3 = signal; '!' = Wi-Fi up but no internet; slash = not connected."""
     d = ImageDraw.Draw(img)
@@ -759,7 +753,7 @@ def draw_wifi(img, bars, connected=True, internet=True):
     if not connected:                           # slash through the fan
         d.line([x0, y0 + 1, x0 + 14, y0 + 12], fill=WHITE, width=4)
         d.line([x0, y0 + 1, x0 + 14, y0 + 12], fill=BLACK, width=2)
-    elif not internet:                          # '!' to the left of the fan
+    elif not internet or stale:                 # '!' to the left of the fan: no internet / this page's data is old
         d.rectangle([x0 - 6, y0 - 1, x0 - 2, y0 + 13], fill=WHITE)
         d.rectangle([x0 - 5, y0, x0 - 3, y0 + 7], fill=BLACK)
         d.rectangle([x0 - 5, y0 + 10, x0 - 3, y0 + 12], fill=BLACK)

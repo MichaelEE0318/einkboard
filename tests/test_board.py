@@ -889,3 +889,20 @@ def test_settings_page_reads_saved_file_not_memory(tmp_path):
         assert _http(port, "/api/status")[1]["boot"] == b.started
     finally:
         srv.shutdown()
+
+
+def test_offline_shown_as_corner_mark_not_tag(tmp_path):
+    """離線不再畫黑底「離線」標籤（會壓到溫度等文字），改成右上角 Wi-Fi 旁的「!」."""
+    b = _board(tmp_path)
+    b.wifi_reader = lambda: (True, 60.0)
+    b.weather = FakeSource({"temp": 26, "desc": "晴", "hi": 28, "lo": 22, "feels": 28, "hum": 70, "rain": 10,
+                            "hourly": [], "code": 1})
+    b.weather.stale = True
+    b.current = "clock"
+    fresh = pages.page_clock(b.now(), None)
+    img = b.decorate(pages.page_clock(b.now(), None))
+    px = img.load()
+    assert any(px[x, y] == 0 for x in range(pages.W - 25, pages.W - 20) for y in range(2, 14))   # '!' drawn
+    b.weather.stale = False
+    img2 = b.decorate(fresh)
+    assert all(img2.load()[x, y] == 255 for x in range(pages.W - 25, pages.W - 20) for y in range(2, 14))

@@ -185,13 +185,16 @@ class Board:
         connected, quality = self.wifi_reader()
         bars = self.wifi.update(quality) if connected else self.wifi.bars
         self.net = {"connected": connected, "bars": bars, "internet": self.internet_ok(), "quality": quality}
-        return pages.draw_wifi(img, bars, connected, self.net["internet"])
+        src = {"clock": self.weather, "power": self.power, "market": self.market}.get(getattr(self, "current", None))
+        stale = bool(src and src.data is not None and src.stale)   # 這一頁的資料太舊 -> 角落的「!」
+        return pages.draw_wifi(img, bars, connected, self.net["internet"], stale)
 
     def tick(self):
         now = self.now()
         name, img = self.render(now)
+        self.current = name
         img = self.decorate(img)
-        self.last_img, self.current = img, name
+        self.last_img = img
         if name == "night":
             # draw once, then leave the panel alone — except once a day at midnight, so a long (weekend)
             # stretch still says 「明天」 on Sunday and shows the next day's weather
