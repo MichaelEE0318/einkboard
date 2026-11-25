@@ -247,8 +247,14 @@ def parse_mis(j):
             "high": _px(r.get("h")), "low": _px(r.get("l")),
             "vol": _num(r.get("v")),                  # 張
             "time": r.get("t") or "",
+            "day": (roc_date(r.get("d")) or dt.datetime.now(TW).date()).isoformat(),   # 這筆報價是哪一天的
         }
     return out
+
+
+def quote_day(q):
+    """報價的交易日（MIS 用 day、官方收盤用 date）；比較新舊用。"""
+    return (q or {}).get("day") or (q or {}).get("date") or ""
 
 
 def roc_date(v):
@@ -388,15 +394,26 @@ class Market(Source):
         except Exception as e:
             errs.append(f"MIS: {e}")
         if set(self.stocks) - set(quotes):       # MIS 掛了或少了幾檔 → 官方收盤價補
+            prev = (self.data or {}).get("quotes") or {}
             try:
                 close = self.fetch_close(force=bool(errs) and not self.close_quotes)
-                for c in self.stocks:
-                    if c not in quotes and c in close:
-                        quotes[c] = close[c]
-                if errs:
-                    src = "close"
             except Exception as e:
                 errs.append(f"OpenAPI: {e}")
+                close = {}
+            newer = 0
+            for c in self.stocks:
+                if c in quotes:
+                    continue
+                if c in prev and quote_day(prev[c]) >= quote_day(close.get(c)):
+                    quotes[c] = prev[c]                  # 手上的比收盤價新（例如斷線前的盤中價）→ 不要拿舊的蓋掉
+                elif c in close:
+                    quotes[c] = close[c]
+                    newer += 1
+            if errs:
+                if not newer:
+                    # MIS 斷了、收盤價也沒有比較新 -> 不更新，畫面保持斷線前的數字和走勢圖（右上角顯示「!」）
+                    raise IOError(" | ".join(errs) or "offline")
+                src = "close"
         if not quotes:
             raise IOError(" | ".join(errs) or "no quotes")
         if errs:

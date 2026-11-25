@@ -1,4 +1,5 @@
 import datetime as dt
+import json
 import time
 from zoneinfo import ZoneInfo
 
@@ -906,3 +907,39 @@ def test_offline_shown_as_corner_mark_not_tag(tmp_path):
     b.weather.stale = False
     img2 = b.decorate(fresh)
     assert all(img2.load()[x, y] == 255 for x in range(pages.W - 25, pages.W - 20) for y in range(2, 14))
+
+
+def test_market_disconnect_keeps_live_numbers_and_sparkline(tmp_path, monkeypatch):
+    """斷線時不可以拿記憶體裡昨天的收盤價蓋掉斷線前的盤中價／走勢圖."""
+    import einkboard.sources as src
+    m = Market(mcfg(tmp_path))
+    m.stocks = ["2330", "6488"]
+    today = dt.datetime.now(TZ).date().strftime("%Y%m%d")
+    live = {"msgArray": [{"c": "2330", "n": "台積電", "z": "1100", "y": "1035", "t": "10:01:00", "d": today},
+                         {"c": "6488", "n": "環球晶", "z": "430", "y": "420.5", "t": "10:01:00", "d": today}]}
+    m.session = fake_session({m.MIS: FakeResp(live), m.TWSE_CLOSE: FakeResp(TWSE_ROWS), m.TPEX_CLOSE: FakeResp(TPEX_ROWS),
+                              m.ERAPI: FakeResp({"result": "success", "rates": {"USD": 0.031}})})
+    m.fetch_close(force=True)                              # yesterday's close sits in memory (as in real use)
+    m.history = {"2330": [(600 + i, 1090 + i) for i in range(20)]}
+    m.history_day = dt.datetime.now(TZ).date()
+    m.poll_once()
+    before = json.dumps(m.data, sort_keys=True, default=str)
+    assert m.data["quotes"]["2330"]["price"] == 1100
+    m.session = fake_session({m.MIS: IOError("network down"), m.TWSE_CLOSE: IOError("down"),
+                              m.TPEX_CLOSE: IOError("down"), m.ERAPI: IOError("down")})
+    m.poll_once()                                          # offline
+    assert json.dumps(m.data, sort_keys=True, default=str) == before   # same numbers, same sparkline
+    assert m.error and "network down" in m.error
+    m.updated -= 3600
+    assert m.stale                                         # -> '!' in the corner
+
+
+def test_market_close_still_used_when_it_is_newer(tmp_path):
+    """MIS 被擋、手上只有更舊的資料（例如前一天的快取）→ 官方收盤價還是要補上."""
+    m = Market(mcfg(tmp_path))
+    m.stocks = ["2330"]
+    m.data = {"quotes": {"2330": {"code": "2330", "price": 999, "day": "2000-01-03"}}, "src": "cache"}
+    m.session = fake_session({m.MIS: IOError("blocked"), m.TWSE_CLOSE: FakeResp(TWSE_ROWS),
+                              m.TPEX_CLOSE: FakeResp(TPEX_ROWS), m.ERAPI: FakeResp({"result": "success", "rates": {}})})
+    d = m.fetch()
+    assert d["src"] == "close" and d["quotes"]["2330"]["price"] != 999
